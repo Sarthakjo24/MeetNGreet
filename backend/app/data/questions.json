@@ -1,0 +1,254 @@
+{
+  "selection_mode": "mixed",
+  "question_count": 5,
+  "always_include_ids": ["Q001"],
+  "fixed_question_ids": ["Q001"],
+  "questions": [
+    {
+      "id": "Q001",
+      "text": "PLEASE INTRODUCE YOURSELF AND TELL US ABOUT YOURSELF",
+      "topic": "Introduction",
+      "type": "fixed"
+    },
+    {
+      "id": "Q002",
+      "text": "Your thoughts on women empowerment.",
+      "topic": "Social",
+      "type": "random"
+    },
+    {
+      "id": "Q003",
+      "text": "The city that you live in: 2 places to visit and 2 places not to visit, and why.",
+      "topic": "Communication",
+      "type": "random"
+    },
+    {
+      "id": "Q004",
+      "text": "The city that you live in: 2 things you like and 2 things you don't, and why.",
+      "topic": "Communication",
+      "type": "random"
+    },
+    {
+      "id": "Q005",
+      "text": "If you were a leader at your company, what changes would you like to bring in?",
+      "topic": "Leadership",
+      "type": "random"
+    },
+    {
+      "id": "Q006",
+      "text": "What's your daily routine?",
+      "topic": "Personal",
+      "type": "random"
+    },
+    {
+      "id": "Q007",
+      "text": "What are your thoughts on life without technology?",
+      "topic": "Technology",
+      "type": "random"
+    },
+    {
+      "id": "Q008",
+      "text": "What's your take on AI?",
+      "topic": "AI",
+      "type": "random"
+    },
+    {
+      "id": "Q009",
+      "text": "Out of WFH, WFO, and hybrid, which work model do you personally prefer and why?",
+      "topic": "Workstyle",
+      "type": "random"
+    },
+    {
+      "id": "Q010",
+      "text": "A profitable mistake that you ever made and you felt great/bad about it.",
+      "topic": "Reflection",
+      "type": "random"
+    },
+    {
+      "id": "Q011",
+      "text": "Describe your worst/good experience in your previous organization.",
+      "topic": "Experience",
+      "type": "random"
+    },
+    {
+      "id": "Q012",
+      "text": "Easy ways to become a millionaire.",
+      "topic": "Opinion",
+      "type": "random"
+    },
+    {
+      "id": "Q013",
+      "text": "Does money change people?",
+      "topic": "Opinion",
+      "type": "random"
+    },
+    {
+      "id": "Q014",
+      "text": "Positives of social media.",
+      "topic": "Social",
+      "type": "random"
+    },
+    {
+      "id": "Q015",
+      "text": "Laughter is the best medicine.",
+      "topic": "Opinion",
+      "type": "random"
+    },
+    {
+      "id": "Q016",
+      "text": "If you could time travel, what would you like to experience?",
+      "topic": "Creative",
+      "type": "random"
+    },
+    {
+      "id": "Q017",
+      "text": "Real learnings occur outside the classroom.",
+      "topic": "Learning",
+      "type": "random"
+    },
+    {
+      "id": "Q018",
+      "text": "Ways to overcome phobias/fear.",
+      "topic": "Personal",
+      "type": "random"
+    },
+    {
+      "id": "Q019",
+      "text": "Do we have to lie sometimes? If yes/no, why?",
+      "topic": "Ethics",
+      "type": "random"
+    },
+    {
+      "id": "Q020",
+      "text": "Do colors affect the way people feel?",
+      "topic": "Behavior",
+      "type": "random"
+    },
+    {
+      "id": "Q021",
+      "text": "Children become their environment.",
+      "topic": "Social",
+      "type": "random"
+    },
+    {
+      "id": "Q022",
+      "text": "How would you describe yourself as a person?",
+      "topic": "Personal",
+      "type": "random"
+    },
+    {
+      "id": "Q023",
+      "text": "What are your strengths and areas of opportunity?",
+      "topic": "Self-awareness",
+      "type": "random"
+    },
+    {
+      "id": "Q024",
+      "text": "What motivates you and why?",
+      "topic": "Motivation",
+      "type": "random"
+    },
+    {
+      "id": "Q025",
+      "text": "What are your views on stress and how do you handle stress?",
+      "topic": "Resilience",
+      "type": "random"
+    },
+    {
+      "id": "Q026",
+      "text": "How would your friends describe you?",
+      "topic": "Personal",
+      "type": "random"
+    },
+    {
+      "id": "Q027",
+      "text": "Could you describe one of your typical workdays?",
+      "topic": "Workstyle",
+      "type": "random"
+    },
+    {
+      "id": "Q028",
+      "text": "What are your short-term career goals and long-term goals?",
+      "topic": "Career",
+      "type": "random"
+    },
+    {
+      "id": "Q029",
+      "text": "Talk about an experience handling difficult customers.",
+      "topic": "Customer Service",
+      "type": "random"
+    },
+    {
+      "id": "Q030",
+      "text": "What do you think of customer service and its importance? Share one difficult customer case you handled.",
+      "topic": "Customer Service",
+      "type": "random"
+    },
+    {
+      "id": "Q031",
+      "text": "Any technology that you want to learn and why you want to learn it.",
+      "topic": "Technology",
+      "type": "random"
+    },
+    {
+      "id": "Q032",
+      "text": "If you get an opportunity to change your career, which career would you choose and why?",
+      "topic": "Career",
+      "type": "random"
+    },
+    {
+      "id": "Q033",
+      "text": "Complete the sentence by narrating an incident or imaginary story. Choose one: Last evening I was playing with my pet and suddenly I saw... / Last evening while I was returning home, I suddenly saw... / I was having coffee at my home and suddenly there was a knock on the door and... / My friend and I were strolling in the park and I noticed...",
+      "topic": "Storytelling",
+      "type": "random"
+    },
+    {
+      "id": "Q034",
+      "text": "Why do you want to join us?",
+      "topic": "Motivation",
+      "type": "random"
+    },
+    {
+      "id": "Q035",
+      "text": "Tell me about a unique strength you have / what sets you apart from others / one area of improvement you want to work on.",
+      "topic": "Self-awareness",
+      "type": "random"
+    },
+    {
+      "id": "Q036",
+      "text": "Tell us about your past work experience and any tools or software you are proficient with. Provide as much detail as possible.",
+      "topic": "Experience",
+      "type": "random"
+    },
+    {
+      "id": "Q037",
+      "text": "Please detail the extent of your Customer Service / VA experience.",
+      "topic": "Customer Service",
+      "type": "random"
+    },
+    {
+      "id": "Q038",
+      "text": "Are you interested in full-time employment, part-time, or either?",
+      "topic": "Availability",
+      "type": "random"
+    },
+    {
+      "id": "Q039",
+      "text": "What are your salary requirements? Please specify a number and the currency (USD, PHP, etc.).",
+      "topic": "Compensation",
+      "type": "random"
+    },
+    {
+      "id": "Q040",
+      "text": "Describe a time when a client approached you with a problem they couldn't solve. What did you do?",
+      "topic": "Problem Solving",
+      "type": "random"
+    },
+    {
+      "id": "Q041",
+      "text": "How do you keep yourself motivated and how do you update yourself with the latest technologies?",
+      "topic": "Growth",
+      "type": "random"
+    }
+  ]
+}

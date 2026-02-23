@@ -1,0 +1,50 @@
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Runtime / generated storage
+backend/storage/
+storage/
+media/
+uploads/
+transcriptions/
+evaluations/
+*.db
+*.sqlite
+*.sqlite3
+backend/server.log
+*.log
+backend/storage/**/*.json
+transcriptions/**/*.json
+evaluations/**/*.json
+uploads/**/*.json
+
+# Generated media/transcript artifacts
+*.webm
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.aac
+*.ogg
+*.opus
+*.srt
+*.vtt
+
+# Frontend and OS artifacts
+node_modules/
+.DS_Store
+Thumbs.db
+.vscode/

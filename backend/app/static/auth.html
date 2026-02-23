@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta name="meetngreet-build" content="tw3-8000">
+  <title>MEETNGREET SYSTEM LOGIN</title>
+  <link rel="stylesheet" href="/static/css/styles.css?v=20260220tw4">
+  <script>
+    document.documentElement.setAttribute("data-tailwind", "0");
+  </script>
+  <style>
+    html[data-tailwind="0"] body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 15% 10%, rgba(22, 173, 217, 0.2), transparent 42%),
+        radial-gradient(circle at 90% 90%, rgba(126, 221, 250, 0.15), transparent 48%),
+        linear-gradient(160deg, #020b14 0%, #081625 48%, #0a1e2f 100%);
+      color: #ffffff;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    html[data-tailwind="0"] #root {
+      min-height: 100vh;
+    }
+
+    html[data-tailwind="0"] .auth-fallback-main {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    html[data-tailwind="0"] .auth-fallback-panel {
+      width: min(460px, 100%);
+      border: 1px solid rgba(126, 221, 250, 0.45);
+      border-radius: 18px;
+      background: rgba(15, 23, 42, 0.86);
+      box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+      padding: 30px 24px;
+    }
+
+    html[data-tailwind="0"] #login-heading {
+      margin: 0 0 20px;
+      text-transform: uppercase;
+      font-size: 1.7rem;
+      letter-spacing: 0.04em;
+      text-align: center;
+    }
+
+    html[data-tailwind="0"] #google-sso-btn,
+    html[data-tailwind="0"] #microsoft-sso-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 54px;
+      border-radius: 12px;
+      padding: 10px 14px;
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    html[data-tailwind="0"] #google-sso-btn {
+      border: 1px solid rgba(187, 244, 81, 0.75);
+      background: linear-gradient(180deg, #6bb535 0%, #4a8f24 100%);
+    }
+
+    html[data-tailwind="0"] #microsoft-sso-btn {
+      border: 1px solid rgba(126, 221, 250, 0.75);
+      background: linear-gradient(180deg, #2b7fff 0%, #1f63cb 100%);
+    }
+
+    html[data-tailwind="0"] .auth-provider-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.14);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+    }
+
+    html[data-tailwind="0"] #auth-status {
+      margin-top: 12px;
+      text-align: center;
+      color: #dbeafe;
+      font-size: 0.92rem;
+      min-height: 22px;
+    }
+  </style>
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              400: "#7eddfa",
+              500: "#16add9",
+            },
+            accent: "#e4ff4f",
+          },
+        },
+      },
+    };
+  </script>
+  <script id="tailwind-cdn" src="https://cdn.tailwindcss.com"></script>
+  <script>
+    document.getElementById("tailwind-cdn").addEventListener("load", function () {
+      document.documentElement.setAttribute("data-tailwind", "1");
+    });
+  </script>
+</head>
+<body class="min-h-screen bg-slate-950 text-white">
+  <!-- MEETNGREET_BUILD=tw3-8000 -->
+  <div id="root"></div>
+  <script src="/static/js/react_auth.js?v=20260220tw4"></script>
+  <script src="/static/js/auth_client.js?v=20260220tw4"></script>
+  <script src="/static/js/auth.js?v=20260220tw4"></script>
+</body>
+</html>
