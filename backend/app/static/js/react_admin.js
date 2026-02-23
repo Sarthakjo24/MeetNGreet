@@ -33,6 +33,7 @@
               <thead class="bg-slate-800/85 text-xs font-semibold uppercase tracking-wide text-brand-400">
                 <tr>
                   <th class="px-4 py-3">Candidate ID</th>
+                  <th class="px-4 py-3">Candidate Name</th>
                   <th class="px-4 py-3">Email</th>
                   <th class="px-4 py-3">Delete</th>
                   <th class="px-4 py-3">Session ID</th>

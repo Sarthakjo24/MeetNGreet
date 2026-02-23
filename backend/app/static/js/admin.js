@@ -52,7 +52,7 @@ function renderRows(rows) {
 
   if (!rows.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = "<td colspan=\"8\" class=\"px-4 py-6 text-center text-slate-300\">No sessions found.</td>";
+    tr.innerHTML = "<td colspan=\"9\" class=\"px-4 py-6 text-center text-slate-300\">No sessions found.</td>";
     dom.body.appendChild(tr);
     return;
   }
@@ -62,6 +62,7 @@ function renderRows(rows) {
     tr.className = "hover:bg-slate-800/55 transition";
     tr.innerHTML = `
       <td class="px-4 py-3">${escapeHtml(row.candidate_id || "")}</td>
+      <td class="px-4 py-3 text-slate-200">${escapeHtml(row.candidate_name || "")}</td>
       <td class="px-4 py-3 text-slate-200">${escapeHtml(row.candidate_email || "")}</td>
       <td class="px-4 py-3">
         <button type="button" class="delete-btn rounded-lg border border-[#fb2c36]/65 bg-[#fb2c36]/90 px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#fb2c36]" data-session-id="${escapeAttr(row.session_id)}">

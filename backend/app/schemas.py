@@ -65,6 +65,7 @@ class SessionProgressOut(BaseModel):
 class AdminResultOut(BaseModel):
     session_id: str
     candidate_id: str
+    candidate_name: str
     candidate_email: str
     final_score: float | None
     status_label: str | None
@@ -92,6 +93,7 @@ class AdminQuestionResponseOut(BaseModel):
 class AdminSessionDetailOut(BaseModel):
     session_id: str
     candidate_id: str
+    candidate_name: str
     candidate_email: str
     final_score: float | None
     status_label: str | None

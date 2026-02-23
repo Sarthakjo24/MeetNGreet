@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -147,6 +148,14 @@ def _extract_feedback_details(raw_feedback: str | None) -> tuple[str | None, lis
 def _ensure_session_access(session: CandidateSession, current_user: CurrentUser) -> None:
     if session.candidate_id != current_user.email:
         raise HTTPException(status_code=403, detail="Not authorized to access this session.")
+
+
+def _derive_name_from_email(email: str | None) -> str:
+    local_part = str(email or "").strip().split("@", 1)[0]
+    parts = [item for item in re.split(r"[._+\-\s]+", local_part) if item]
+    if not parts:
+        return "Candidate"
+    return " ".join(part.title() for part in parts)
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -440,7 +449,8 @@ def list_admin_results(
         select(
             CandidateSession.id.label("session_id"),
             User.unique_id.label("candidate_id"),
-            User.email.label("candidate_email"),
+            User.email.label("user_email"),
+            CandidateSession.candidate_id.label("session_candidate_email"),
             CandidateSession.overall_score.label("final_score"),
             CandidateSession.status_label.label("status_label"),
             CandidateSession.created_at.label("created_at"),
@@ -462,7 +472,10 @@ def list_admin_results(
         {
             "session_id": row.session_id,
             "candidate_id": row.candidate_id or "",
-            "candidate_email": row.candidate_email or "",
+            "candidate_name": _derive_name_from_email(
+                row.user_email or row.session_candidate_email or ""
+            ),
+            "candidate_email": row.user_email or row.session_candidate_email or "",
             "final_score": row.final_score,
             "status_label": row.status_label,
             "created_at": _as_utc(row.created_at),
@@ -487,6 +500,7 @@ def get_admin_session_detail(
     user = None
     if lookup_key:
         user = db.scalar(select(User).where(User.email == lookup_key))
+    candidate_email = user.email if user else lookup_key
 
     questions = db.scalars(
         select(SessionQuestion)
@@ -538,7 +552,8 @@ def get_admin_session_detail(
     return {
         "session_id": session.id,
         "candidate_id": user.unique_id if user else "",
-        "candidate_email": user.email if user else "",
+        "candidate_name": _derive_name_from_email(candidate_email),
+        "candidate_email": candidate_email,
         "final_score": session.overall_score,
         "status_label": session.status_label,
         "created_at": _as_utc(session.created_at),

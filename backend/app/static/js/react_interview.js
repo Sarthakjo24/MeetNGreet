@@ -25,7 +25,11 @@
 
         <section id="start-panel" class="rounded-2xl border border-brand-400/35 bg-slate-900/80 p-5 shadow-[0_20px_55px_rgba(0,0,0,.38)]">
           <h2 class="text-xl font-bold text-white">Start Interview</h2>
-          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <div class="mt-4 grid gap-3 sm:grid-cols-3">
+            <div class="rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm">
+              <span class="font-semibold text-slate-300">Candidate Name: </span>
+              <span id="signed-in-name" class="text-white">-</span>
+            </div>
             <div class="rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm">
               <span class="font-semibold text-slate-300">Signed in as: </span>
               <span id="signed-in-email" class="text-white">-</span>

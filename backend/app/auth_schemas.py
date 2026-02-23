@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr
 
 class SessionUserOut(BaseModel):
     unique_id: str
+    name: str
     email: EmailStr
     provider: str
     created_at: datetime | None = None

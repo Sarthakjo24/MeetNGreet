@@ -26,6 +26,13 @@ const state = {
   speechRecognition: null
 };
 
+function deriveDisplayNameFromEmail(email) {
+  const localPart = String(email || "").trim().split("@")[0] || "";
+  const parts = localPart.split(/[._+\-\s]+/).filter(Boolean);
+  if (!parts.length) return "Candidate";
+  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
 function ensureStopButton() {
   let stopBtn = document.getElementById("stop-btn");
   if (stopBtn) {
@@ -51,6 +58,7 @@ const dom = {
   startPanel: document.getElementById("start-panel"),
   interviewPanel: document.getElementById("interview-panel"),
   thankyouPanel: document.getElementById("thankyou-panel"),
+  signedInName: document.getElementById("signed-in-name"),
   signedInEmail: document.getElementById("signed-in-email"),
   signedInProvider: document.getElementById("signed-in-provider"),
   logoutBtn: document.getElementById("logout-btn"),
@@ -89,6 +97,11 @@ async function initializePage() {
   }
 
   state.candidateId = state.authUser.email;
+  const candidateName = String(state.authUser.name || "").trim()
+    || deriveDisplayNameFromEmail(state.authUser.email);
+  if (dom.signedInName) {
+    dom.signedInName.textContent = candidateName;
+  }
   if (dom.signedInEmail) {
     dom.signedInEmail.textContent = state.authUser.email;
   }

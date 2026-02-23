@@ -27,7 +27,7 @@ app.include_router(interview_router)
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-APP_BUILD_FINGERPRINT = "tw3-8000"
+APP_BUILD_FINGERPRINT = "tw5-8000"
 NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",

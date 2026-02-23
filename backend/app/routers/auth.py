@@ -1,4 +1,5 @@
 import hashlib
+import re
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -50,6 +51,14 @@ def _stable_unique_id(seed: str) -> str:
     if normalized and len(normalized) <= 64:
         return normalized
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:64]
+
+
+def _derive_name_from_email(email: str) -> str:
+    local_part = str(email or "").strip().split("@", 1)[0]
+    parts = [item for item in re.split(r"[._+\-\s]+", local_part) if item]
+    if not parts:
+        return "Candidate"
+    return " ".join(part.title() for part in parts)
 
 
 def _issue_session_cookie(response: Response, user: User) -> None:
@@ -137,6 +146,7 @@ def session(current_user: CurrentUser = Depends(get_current_user), db: Session =
 
     return {
         "unique_id": user.unique_id,
+        "name": _derive_name_from_email(user.email),
         "email": user.email,
         "provider": user.provider,
         "created_at": user.created_at,
