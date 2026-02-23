@@ -13,7 +13,7 @@
               <h1 class="mt-1 text-2xl font-bold text-white sm:text-3xl">MeetnGreet Interview Console</h1>
             </div>
             <div class="flex flex-wrap gap-3">
-              <a href="/admin" class="inline-flex items-center rounded-lg border border-brand-400/60 bg-brand-500/15 px-4 py-2 text-sm font-semibold text-brand-400 hover:bg-brand-500/25">
+              <a href="/admin" class="inline-flex items-center rounded-lg border border-[#e4ff4f]/80 bg-[#e4ff4f] px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-[#efff73]">
                 Open Admin Dashboard
               </a>
               <button id="logout-btn" type="button" class="rounded-lg border border-[#fb2c36]/70 bg-gradient-to-b from-[#fb2c36] to-[#c51b24] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(251,44,54,.32)] hover:brightness-105">
