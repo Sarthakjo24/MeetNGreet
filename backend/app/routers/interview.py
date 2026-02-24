@@ -458,7 +458,7 @@ def list_admin_results(
                 CandidateSession.evaluated_at,
                 latest_response_subquery.c.submitted_at,
             ).label("submitted_at"),
-            # totals across responses for the session (may be None if not evaluated)
+            # Calculate averages for each field: (sum / 50) * 10
             select(func.sum(CandidateResponse.confidence_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("confidence_total"),
             select(func.sum(CandidateResponse.communication_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("communication_total"),
             select(func.sum(CandidateResponse.content_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("content_total"),
@@ -484,9 +484,9 @@ def list_admin_results(
             "status_label": row.status_label,
             "created_at": _as_utc(row.created_at),
             "submitted_at": _as_utc(row.submitted_at),
-            "confidence_total": float(row.confidence_total) if (row.confidence_total is not None and row.final_score is not None) else None,
-            "communication_total": float(row.communication_total) if (row.communication_total is not None and row.final_score is not None) else None,
-            "content_total": float(row.content_total) if (row.content_total is not None and row.final_score is not None) else None,
+            "communication_avg": (float(row.communication_total) / 50.0) * 10 if (row.communication_total is not None and row.final_score is not None) else None,
+            "content_avg": (float(row.content_total) / 50.0) * 10 if (row.content_total is not None and row.final_score is not None) else None,
+            "confidence_avg": (float(row.confidence_total) / 50.0) * 10 if (row.confidence_total is not None and row.final_score is not None) else None,
         }
         for row in rows
     ]
@@ -530,6 +530,10 @@ def get_admin_session_detail(
         submitted_at = max(r.created_at for r in responses)
 
     response_items: list[dict] = []
+    communication_scores = []
+    content_scores = []
+    confidence_scores = []
+    
     for question in questions:
         response = response_by_question.get(question.question_id)
         if not response:
@@ -555,6 +559,26 @@ def get_admin_session_detail(
                 "uploaded_at": _as_utc(response.created_at),
             }
         )
+        
+        # Collect scores for averaging
+        if response.communication_score is not None:
+            communication_scores.append(response.communication_score)
+        if response.content_score is not None:
+            content_scores.append(response.content_score)
+        if response.confidence_score is not None:
+            confidence_scores.append(response.confidence_score)
+    
+    # Calculate averages: sum of scores / 50 * 10
+    communication_avg = None
+    content_avg = None
+    confidence_avg = None
+    
+    if communication_scores:
+        communication_avg = (sum(communication_scores) / 50.0) * 10
+    if content_scores:
+        content_avg = (sum(content_scores) / 50.0) * 10
+    if confidence_scores:
+        confidence_avg = (sum(confidence_scores) / 50.0) * 10
 
     return {
         "session_id": session.id,
@@ -567,6 +591,9 @@ def get_admin_session_detail(
         "submitted_at": _as_utc(submitted_at),
         "question_count": len(questions),
         "responses": response_items,
+        "communication_avg": communication_avg,
+        "content_avg": content_avg,
+        "confidence_avg": confidence_avg,
     }
 
 

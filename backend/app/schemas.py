@@ -71,6 +71,9 @@ class AdminResultOut(BaseModel):
     status_label: str | None
     created_at: datetime
     submitted_at: datetime | None
+    communication_avg: float | None = None
+    content_avg: float | None = None
+    confidence_avg: float | None = None
 
 
 class AdminQuestionResponseOut(BaseModel):
@@ -101,6 +104,9 @@ class AdminSessionDetailOut(BaseModel):
     submitted_at: datetime | None
     question_count: int
     responses: list[AdminQuestionResponseOut]
+    communication_avg: float | None = None
+    content_avg: float | None = None
+    confidence_avg: float | None = None
 
 
 class AdminDeleteOut(BaseModel):

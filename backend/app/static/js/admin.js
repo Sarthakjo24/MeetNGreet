@@ -66,9 +66,9 @@ function renderRows(rows) {
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-200">${escapeHtml(row.candidate_name || "")}</td>
       <td class="px-4 py-3 text-slate-200 max-w-[150px] whitespace-normal break-words">${escapeHtml(row.candidate_email || "")}</td>
-      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatCategoryTotal(row.confidence_total)}</td>
-      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[56px] whitespace-nowrap">${formatCategoryTotal(row.communication_total)}</td>
-      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatCategoryTotal(row.content_total)}</td>
+      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatScore(row.confidence_avg)}</td>
+      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[56px] whitespace-nowrap">${formatScore(row.communication_avg)}</td>
+      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatScore(row.content_avg)}</td>
       <td class="px-4 py-3 font-semibold text-brand-400 text-center w-[72px] whitespace-normal break-words">${formatScore(row.final_score, row.status_label)}</td>
 
       <!-- Evaluator editable columns -->

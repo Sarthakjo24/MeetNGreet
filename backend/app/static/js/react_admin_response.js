@@ -20,12 +20,14 @@
         </header>
 
         <section class="rounded-2xl border border-brand-400/35 bg-slate-900/80 p-5 shadow-[0_20px_55px_rgba(0,0,0,.38)]">
-          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate ID: </span><span id="meta-candidate" class="text-white">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate Email: </span><span id="meta-candidate-email" class="text-white">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Session ID: </span><span id="meta-session" class="text-white">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Session Score: </span><span id="meta-score" class="text-white">-</span></div>
-            <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Created At: </span><span id="meta-created" class="text-white">-</span></div>
+            <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Communication Avg: </span><span id="meta-communication-avg" class="text-brand-400">-</span></div>
+            <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Content Avg: </span><span id="meta-content-avg" class="text-brand-400">-</span></div>
+            <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Confidence Avg: </span><span id="meta-confidence-avg" class="text-brand-400">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Submitted At: </span><span id="meta-submitted" class="text-white">-</span></div>
           </div>
 

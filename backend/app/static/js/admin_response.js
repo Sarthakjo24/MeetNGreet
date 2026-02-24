@@ -7,6 +7,9 @@ const dom = {
   candidateEmail: document.getElementById("meta-candidate-email"),
   session: document.getElementById("meta-session"),
   score: document.getElementById("meta-score"),
+  communicationAvg: document.getElementById("meta-communication-avg"),
+  contentAvg: document.getElementById("meta-content-avg"),
+  confidenceAvg: document.getElementById("meta-confidence-avg"),
   created: document.getElementById("meta-created"),
   submitted: document.getElementById("meta-submitted"),
   list: document.getElementById("response-list"),
@@ -71,7 +74,9 @@ function renderSession(data) {
   dom.candidateEmail.textContent = data.candidate_email || "";
   dom.session.textContent = data.session_id || "-";
   dom.score.textContent = formatScore(data.final_score);
-  dom.created.textContent = formatDate(data.created_at);
+  dom.communicationAvg.textContent = formatScore(data.communication_avg);
+  dom.contentAvg.textContent = formatScore(data.content_avg);
+  dom.confidenceAvg.textContent = formatScore(data.confidence_avg);
   dom.submitted.textContent = formatDate(data.submitted_at);
 
   dom.list.innerHTML = "";
