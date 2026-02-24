@@ -32,15 +32,26 @@
             <table class="min-w-full divide-y divide-brand-400/25 text-left text-sm">
               <thead class="bg-slate-800/85 text-xs font-semibold uppercase tracking-wide text-brand-400">
                 <tr>
-                  <th class="px-4 py-3">Candidate ID</th>
-                  <th class="px-4 py-3">Candidate Name</th>
-                  <th class="px-4 py-3">Email</th>
-                  <th class="px-4 py-3">Delete</th>
-                  <th class="px-4 py-3">Session ID</th>
-                  <th class="px-4 py-3">Score</th>
-                  <th class="px-4 py-3">Created Date and Time</th>
-                  <th class="px-4 py-3">Submitted Date and Time</th>
-                  <th class="px-4 py-3">Actions</th>
+                  <th rowspan="2" class="px-4 py-3">Candidate Name</th>
+                   <th rowspan="2" class="px-4 py-3 max-w-[150px] whitespace-normal break-words">Email</th>
+                  <th colspan="4" class="px-4 py-3 text-center">Scores by AI</th>
+                  <th colspan="4" class="px-4 py-3 text-center">Scores by Evaluators</th>
+                  <th rowspan="2" class="px-4 py-3">Actions</th>
+                  <th rowspan="2" class="px-4 py-3">Created Date and Time</th>
+                  <th rowspan="2" class="px-4 py-3">Submitted Date and Time</th>
+                  <th rowspan="2" class="px-4 py-3">Session ID</th>
+                  <th rowspan="2" class="px-4 py-3 max-w-[140px] whitespace-normal break-words">Candidate ID</th>
+                  <th rowspan="2" class="px-4 py-3">Delete</th>
+                </tr>
+                <tr>
+                  <th class="px-3 py-2 w-[72px] text-center">Confi-<br/>dence</th>
+                  <th class="px-3 py-2 w-[56px] text-center whitespace-normal">Commu-<br/>nication</th>
+                  <th class="px-3 py-2 w-[72px] text-center">Con-<br/>tent</th>
+                  <th class="px-3 py-2 w-[72px] text-center">Score<br/>(total)</th>
+                  <th class="px-3 py-2 w-[72px] text-center">Confi-<br/>dence</th>
+                  <th class="px-3 py-2 w-[56px] text-center">Commu-<br/>nication</th>
+                  <th class="px-3 py-2 w-[72px] text-center">Con-<br/>tent</th>
+                  <th class="px-3 py-2 w-[72px] text-center">Score<br/>(total)</th>
                 </tr>
               </thead>
               <tbody id="admin-results-body" class="divide-y divide-brand-400/20 bg-slate-900/65 text-slate-100"></tbody>

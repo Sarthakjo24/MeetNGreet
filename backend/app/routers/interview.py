@@ -458,6 +458,10 @@ def list_admin_results(
                 CandidateSession.evaluated_at,
                 latest_response_subquery.c.submitted_at,
             ).label("submitted_at"),
+            # totals across responses for the session (may be None if not evaluated)
+            select(func.sum(CandidateResponse.confidence_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("confidence_total"),
+            select(func.sum(CandidateResponse.communication_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("communication_total"),
+            select(func.sum(CandidateResponse.content_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("content_total"),
         )
         .outerjoin(User, User.email == CandidateSession.candidate_id)
         .outerjoin(
@@ -480,6 +484,9 @@ def list_admin_results(
             "status_label": row.status_label,
             "created_at": _as_utc(row.created_at),
             "submitted_at": _as_utc(row.submitted_at),
+            "confidence_total": float(row.confidence_total) if (row.confidence_total is not None and row.final_score is not None) else None,
+            "communication_total": float(row.communication_total) if (row.communication_total is not None and row.final_score is not None) else None,
+            "content_total": float(row.content_total) if (row.content_total is not None and row.final_score is not None) else None,
         }
         for row in rows
     ]
