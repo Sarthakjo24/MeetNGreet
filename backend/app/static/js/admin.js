@@ -1,6 +1,5 @@
 const api = {
   results: "/api/admin/results",
-  sessionJson: (sessionId) => `/api/admin/sessions/${sessionId}/json`,
   sessionDelete: (sessionId) => `/api/admin/sessions/${sessionId}`,
   sessionStandard: (sessionId) => `/admin/sessions/${sessionId}`
 };
@@ -78,7 +77,6 @@ function renderRows(rows) {
       <td class="px-2 py-2 text-center w-[72px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_score" type="number" min="0" max="10" step="1" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_score ?? ""}"/></td>
       <td class="px-4 py-3">
         <div class="flex flex-wrap gap-2">
-          <a class="rounded-lg border border-[#7eddfa]/70 bg-gradient-to-b from-[#2b7fff] to-[#235fbd] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-105" href="${api.sessionJson(encodeURIComponent(row.session_id))}" target="_blank" rel="noopener">View JSON</a>
           <a class="rounded-lg border border-[#bbf451]/70 bg-gradient-to-b from-[#68b32f] to-[#4d8f21] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-105" href="${api.sessionStandard(encodeURIComponent(row.session_id))}">View Standard Response</a>
         </div>
       </td>
@@ -87,8 +85,8 @@ function renderRows(rows) {
       <td class="px-4 py-3 text-slate-200">${escapeHtml(row.session_id || "-")}</td>
       <td class="px-4 py-3 max-w-[120px] whitespace-normal break-words">${escapeHtml(row.candidate_id || "")}</td>
       <td class="px-4 py-3">
-        <button type="button" class="delete-btn rounded-lg border border-[#fb2c36]/65 bg-[#fb2c36]/90 px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#fb2c36]" data-session-id="${escapeAttr(row.session_id)}">
-          Delete
+        <button type="button" class="delete-btn rounded-lg border border-[#f2efe6]/90 bg-[#f2efe6] px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-[#e8e3d7]" data-session-id="${escapeAttr(row.session_id)}">
+          DELETE
         </button>
       </td>
     `;

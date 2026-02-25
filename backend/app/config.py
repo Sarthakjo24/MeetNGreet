@@ -19,10 +19,6 @@ class Settings(BaseSettings):
     mysql_database: str = Field(default="auth_system", alias="MYSQL_DATABASE")
 
     media_dir: str = Field(default="./backend/storage/media", alias="MEDIA_DIR")
-    evaluation_json_dir: str = Field(
-        default="./backend/storage/evaluations",
-        alias="EVALUATION_JSON_DIR",
-    )
 
     question_bank_path: str = Field(
         default="./backend/app/data/questions.json",

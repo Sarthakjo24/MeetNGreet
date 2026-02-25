@@ -20,6 +20,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     unique_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     provider: Mapped[str] = mapped_column(String(64), default="google")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -30,8 +31,13 @@ class CandidateSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)
     candidate_id: Mapped[str] = mapped_column(String(320), index=True)
+    candidate_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    candidate_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="in_progress")
     overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    communication_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    content_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_total: Mapped[float | None] = mapped_column(Float, nullable=True)
     status_label: Mapped[str | None] = mapped_column(String(24), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -55,6 +61,8 @@ class SessionQuestion(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(ForeignKey("candidate_sessions.id"), index=True)
     question_id: Mapped[str] = mapped_column(String(32), index=True)
+    candidate_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    candidate_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     question_text: Mapped[str] = mapped_column(Text)
     topic: Mapped[str] = mapped_column(String(80))
     question_type: Mapped[str] = mapped_column(String(24), default="fixed")
@@ -69,15 +77,15 @@ class CandidateResponse(Base):
         UniqueConstraint(
             "session_id",
             "question_id",
-            "attempt_no",
-            name="uq_response_attempt",
+            name="uq_response_question",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(ForeignKey("candidate_sessions.id"), index=True)
     question_id: Mapped[str] = mapped_column(String(32), index=True)
-    attempt_no: Mapped[int] = mapped_column(Integer, default=1)
+    candidate_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    candidate_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
     media_filename: Mapped[str] = mapped_column(String(255))
     media_mime: Mapped[str] = mapped_column(String(120), default="video/webm")
@@ -91,7 +99,6 @@ class CandidateResponse(Base):
     content_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    detailed_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

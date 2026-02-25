@@ -1,11 +1,9 @@
-import json
 import logging
 import re
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -13,7 +11,6 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..database import SessionLocal, get_db
 from ..models import CandidateResponse, CandidateSession, SessionQuestion, User
 from ..schemas import (
@@ -28,6 +25,7 @@ from ..schemas import (
 )
 from ..security import CurrentUser, get_current_user
 from ..services.evaluation_service import EvaluationService
+from ..services.mysql_sync_service import get_mysql_sync_service
 from ..services.question_service import QuestionService
 from ..services.storage_service import MediaStorageService
 from ..services.transcription_service import TranscriptionService
@@ -37,6 +35,7 @@ router = APIRouter(prefix="/api", tags=["Interview"])
 logger = logging.getLogger(__name__)
 question_service = QuestionService()
 storage_service = MediaStorageService()
+mysql_sync_service = get_mysql_sync_service()
 _evaluation_service: EvaluationService | None = None
 _evaluation_lock = threading.Lock()
 _evaluation_inflight: set[str] = set()
@@ -99,52 +98,6 @@ def _enqueue_session_evaluation(session_id: str) -> None:
     ).start()
 
 
-def _normalize_insight_points(value: Any) -> list[str]:
-    if isinstance(value, list):
-        points = [str(item).strip() for item in value if str(item).strip()]
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for point in points:
-            key = point.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(point)
-        return deduped[:4]
-
-    if isinstance(value, str):
-        text = value.strip()
-        return [text] if text else []
-
-    return []
-
-
-def _extract_feedback_details(raw_feedback: str | None) -> tuple[str | None, list[str], list[str]]:
-    if not raw_feedback:
-        return None, [], []
-
-    text = str(raw_feedback).strip()
-    if not text:
-        return None, [], []
-
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return text, [], []
-
-    if not isinstance(payload, dict):
-        return text, [], []
-
-    feedback = str(payload.get("feedback") or "").strip() or None
-    strengths = _normalize_insight_points(payload.get("strengths"))
-    weaknesses = _normalize_insight_points(payload.get("weaknesses"))
-
-    if not feedback:
-        feedback = text
-
-    return feedback, strengths, weaknesses
-
-
 def _ensure_session_access(session: CandidateSession, current_user: CurrentUser) -> None:
     if session.candidate_id != current_user.email:
         raise HTTPException(status_code=403, detail="Not authorized to access this session.")
@@ -156,6 +109,29 @@ def _derive_name_from_email(email: str | None) -> str:
     if not parts:
         return "Candidate"
     return " ".join(part.title() for part in parts)
+
+
+def _resolve_candidate_name(name: str | None, email: str | None) -> str:
+    normalized_name = " ".join(str(name or "").strip().split())
+    if normalized_name and "@" not in normalized_name:
+        return normalized_name
+    return _derive_name_from_email(email)
+
+
+def _resolve_session_candidate_identity(db: Session, session: CandidateSession) -> tuple[str, str]:
+    session_name = " ".join(str(session.candidate_name or "").strip().split())
+    session_email = (session.candidate_email or "").strip().lower()
+    if session_name and session_email:
+        return session_name, session_email
+
+    lookup_key = (session.candidate_id or "").strip().lower()
+    user = db.scalar(select(User).where(User.email == lookup_key)) if lookup_key else None
+    candidate_email = (session_email or (user.email if user else lookup_key) or "").strip().lower()
+    candidate_name = _resolve_candidate_name(
+        session_name or (user.name if user else None),
+        candidate_email,
+    )
+    return candidate_name, candidate_email
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -208,10 +184,18 @@ def start_candidate_session(
 
     session_id = str(uuid4())
     candidate_id = current_user.email.strip().lower()
+    user = db.scalar(select(User).where(User.unique_id == current_user.unique_id))
+    candidate_email = (user.email if user and user.email else candidate_id).strip().lower()
+    candidate_name = _resolve_candidate_name(
+        user.name if user else None,
+        candidate_email,
+    )
 
     session = CandidateSession(
         id=session_id,
         candidate_id=candidate_id,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
         status="in_progress",
     )
     db.add(session)
@@ -221,6 +205,8 @@ def start_candidate_session(
         row = SessionQuestion(
             session_id=session_id,
             question_id=question["id"],
+            candidate_name=candidate_name,
+            candidate_email=candidate_email,
             question_text=question["text"],
             topic=question.get("topic", "General"),
             question_type=question.get("type", "fixed"),
@@ -252,7 +238,6 @@ def start_candidate_session(
 async def upload_candidate_response(
     session_id: str = Form(...),
     question_id: str = Form(...),
-    attempt_no: int = Form(1),
     duration_seconds: float | None = Form(default=None),
     transcript_hint: str | None = Form(default=None),
     media_file: UploadFile = File(...),
@@ -277,10 +262,15 @@ async def upload_candidate_response(
         select(CandidateResponse).where(
             CandidateResponse.session_id == session_id,
             CandidateResponse.question_id == question_id,
-            CandidateResponse.attempt_no == attempt_no,
         )
     )
     if existing:
+        if not existing.candidate_name or not existing.candidate_email:
+            candidate_name, candidate_email = _resolve_session_candidate_identity(db=db, session=session)
+            existing.candidate_name = existing.candidate_name or candidate_name
+            existing.candidate_email = existing.candidate_email or candidate_email
+            db.commit()
+
         auto_evaluated = _schedule_session_evaluation_if_ready(
             db=db,
             session=session,
@@ -299,11 +289,13 @@ async def upload_candidate_response(
         question_id=question_id,
         upload_file=media_file,
     )
+    candidate_name, candidate_email = _resolve_session_candidate_identity(db=db, session=session)
 
     response = CandidateResponse(
         session_id=session_id,
         question_id=question_id,
-        attempt_no=attempt_no,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
         media_filename=file_name,
         media_mime=mime,
         media_blob=None,
@@ -449,7 +441,9 @@ def list_admin_results(
         select(
             CandidateSession.id.label("session_id"),
             User.unique_id.label("candidate_id"),
+            User.name.label("user_name"),
             User.email.label("user_email"),
+            CandidateSession.candidate_name.label("session_candidate_name"),
             CandidateSession.candidate_id.label("session_candidate_email"),
             CandidateSession.overall_score.label("final_score"),
             CandidateSession.status_label.label("status_label"),
@@ -458,10 +452,14 @@ def list_admin_results(
                 CandidateSession.evaluated_at,
                 latest_response_subquery.c.submitted_at,
             ).label("submitted_at"),
-            # Calculate averages for each field: (sum / 50) * 10
-            select(func.sum(CandidateResponse.confidence_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("confidence_total"),
-            select(func.sum(CandidateResponse.communication_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("communication_total"),
-            select(func.sum(CandidateResponse.content_score)).where(CandidateResponse.session_id == CandidateSession.id).scalar_subquery().label("content_total"),
+            CandidateSession.communication_total.label("communication_total"),
+            CandidateSession.content_total.label("content_total"),
+            CandidateSession.confidence_total.label("confidence_total"),
+            select(func.count())
+            .select_from(SessionQuestion)
+            .where(SessionQuestion.session_id == CandidateSession.id)
+            .scalar_subquery()
+            .label("question_count"),
         )
         .outerjoin(User, User.email == CandidateSession.candidate_id)
         .outerjoin(
@@ -476,7 +474,8 @@ def list_admin_results(
         {
             "session_id": row.session_id,
             "candidate_id": row.candidate_id or "",
-            "candidate_name": _derive_name_from_email(
+            "candidate_name": _resolve_candidate_name(
+                row.session_candidate_name or row.user_name,
                 row.user_email or row.session_candidate_email or ""
             ),
             "candidate_email": row.user_email or row.session_candidate_email or "",
@@ -484,9 +483,21 @@ def list_admin_results(
             "status_label": row.status_label,
             "created_at": _as_utc(row.created_at),
             "submitted_at": _as_utc(row.submitted_at),
-            "communication_avg": (float(row.communication_total) / 50.0) * 10 if (row.communication_total is not None and row.final_score is not None) else None,
-            "content_avg": (float(row.content_total) / 50.0) * 10 if (row.content_total is not None and row.final_score is not None) else None,
-            "confidence_avg": (float(row.confidence_total) / 50.0) * 10 if (row.confidence_total is not None and row.final_score is not None) else None,
+            "communication_avg": (
+                (float(row.communication_total) / (max(int(row.question_count or 0), 1) * 10.0)) * 10.0
+                if (row.communication_total is not None and row.final_score is not None)
+                else None
+            ),
+            "content_avg": (
+                (float(row.content_total) / (max(int(row.question_count or 0), 1) * 10.0)) * 10.0
+                if (row.content_total is not None and row.final_score is not None)
+                else None
+            ),
+            "confidence_avg": (
+                (float(row.confidence_total) / (max(int(row.question_count or 0), 1) * 10.0)) * 10.0
+                if (row.confidence_total is not None and row.final_score is not None)
+                else None
+            ),
         }
         for row in rows
     ]
@@ -507,7 +518,11 @@ def get_admin_session_detail(
     user = None
     if lookup_key:
         user = db.scalar(select(User).where(User.email == lookup_key))
-    candidate_email = user.email if user else lookup_key
+    candidate_email = (session.candidate_email or (user.email if user else lookup_key) or "").strip().lower()
+    candidate_name = _resolve_candidate_name(
+        session.candidate_name or (user.name if user else None),
+        candidate_email,
+    )
 
     questions = db.scalars(
         select(SessionQuestion)
@@ -539,8 +554,6 @@ def get_admin_session_detail(
         if not response:
             continue
 
-        feedback_text, strengths, weaknesses = _extract_feedback_details(response.detailed_feedback)
-
         response_items.append(
             {
                 "response_id": response.id,
@@ -552,9 +565,9 @@ def get_admin_session_detail(
                 "content_score": response.content_score,
                 "confidence_score": response.confidence_score,
                 "final_score": response.final_score,
-                "feedback": feedback_text,
-                "strengths": strengths,
-                "weaknesses": weaknesses,
+                "feedback": None,
+                "strengths": [],
+                "weaknesses": [],
                 "media_url": f"/api/admin/sessions/{session_id}/responses/{response.id}/media",
                 "uploaded_at": _as_utc(response.created_at),
             }
@@ -568,22 +581,30 @@ def get_admin_session_detail(
         if response.confidence_score is not None:
             confidence_scores.append(response.confidence_score)
     
-    # Calculate averages: sum of scores / 50 * 10
     communication_avg = None
     content_avg = None
     confidence_avg = None
-    
-    if communication_scores:
-        communication_avg = (sum(communication_scores) / 50.0) * 10
-    if content_scores:
-        content_avg = (sum(content_scores) / 50.0) * 10
-    if confidence_scores:
-        confidence_avg = (sum(confidence_scores) / 50.0) * 10
+
+    question_scale = max(len(questions), 1) * 10.0
+    if session.communication_total is not None:
+        communication_avg = (float(session.communication_total) / question_scale) * 10.0
+    elif communication_scores:
+        communication_avg = (sum(communication_scores) / question_scale) * 10.0
+
+    if session.content_total is not None:
+        content_avg = (float(session.content_total) / question_scale) * 10.0
+    elif content_scores:
+        content_avg = (sum(content_scores) / question_scale) * 10.0
+
+    if session.confidence_total is not None:
+        confidence_avg = (float(session.confidence_total) / question_scale) * 10.0
+    elif confidence_scores:
+        confidence_avg = (sum(confidence_scores) / question_scale) * 10.0
 
     return {
         "session_id": session.id,
         "candidate_id": user.unique_id if user else "",
-        "candidate_name": _derive_name_from_email(candidate_email),
+        "candidate_name": candidate_name,
         "candidate_email": candidate_email,
         "final_score": session.overall_score,
         "status_label": session.status_label,
@@ -595,21 +616,6 @@ def get_admin_session_detail(
         "content_avg": content_avg,
         "confidence_avg": confidence_avg,
     }
-
-
-@router.get("/admin/sessions/{session_id}/json")
-def get_admin_session_json(
-    session_id: str,
-):
-    file_path = Path(settings.evaluation_json_dir) / f"{session_id}.json"
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Evaluation JSON not found")
-
-    return FileResponse(
-        path=file_path,
-        media_type="application/json",
-        filename=file_path.name,
-    )
 
 
 @router.get("/admin/sessions/{session_id}/responses/{response_id}/media")
@@ -662,14 +668,13 @@ def delete_admin_session(
     db.delete(session)
     db.commit()
 
+    mysql_sync_service.delete_session(session_id)
+
     for media_path in media_paths:
         try:
             Path(media_path).unlink(missing_ok=True)
         except Exception:
             continue
-
-    evaluation_json = Path(settings.evaluation_json_dir) / f"{session_id}.json"
-    evaluation_json.unlink(missing_ok=True)
 
     return {
         "session_id": session_id,

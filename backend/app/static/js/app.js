@@ -477,7 +477,6 @@ async function uploadCurrentAnswer(blob, durationSeconds) {
     const formData = new FormData();
     formData.append("session_id", state.sessionId);
     formData.append("question_id", q.question_id);
-    formData.append("attempt_no", "1");
     formData.append("duration_seconds", String(durationSeconds));
     formData.append("transcript_hint", buildTranscriptHint());
     formData.append("media_file", blob, `${q.question_id}.webm`);

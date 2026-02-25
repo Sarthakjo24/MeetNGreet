@@ -13,7 +13,7 @@
               <h1 class="mt-1 text-2xl font-bold text-white sm:text-3xl">Candidate Standard Response</h1>
               <p class="mt-1 text-sm text-slate-300">Video, transcript, score and evaluation insights</p>
             </div>
-            <a href="/admin" class="inline-flex items-center rounded-lg border border-[#fb2c36]/70 bg-gradient-to-b from-[#fb2c36] to-[#c51b24] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(251,44,54,.32)] hover:brightness-105">
+            <a href="/admin" class="inline-flex items-center rounded-lg border border-[#ffb15c]/75 bg-gradient-to-b from-[#ff9f2e] to-[#d97800] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(255,137,4,.35)] hover:brightness-105">
               Back to Dashboard
             </a>
           </div>
@@ -21,8 +21,9 @@
 
         <section class="rounded-2xl border border-brand-400/35 bg-slate-900/80 p-5 shadow-[0_20px_55px_rgba(0,0,0,.38)]">
           <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate ID: </span><span id="meta-candidate" class="text-white">-</span></div>
+            <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate Name: </span><span id="meta-candidate-name" class="text-white">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate Email: </span><span id="meta-candidate-email" class="text-white">-</span></div>
+            <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate ID: </span><span id="meta-candidate-id" class="text-white">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Session ID: </span><span id="meta-session" class="text-white">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Session Score: </span><span id="meta-score" class="text-white">-</span></div>
             <div class="meta-item rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Communication Avg: </span><span id="meta-communication-avg" class="text-brand-400">-</span></div>

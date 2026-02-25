@@ -3,7 +3,8 @@ const api = {
 };
 
 const dom = {
-  candidate: document.getElementById("meta-candidate"),
+  candidateName: document.getElementById("meta-candidate-name"),
+  candidateId: document.getElementById("meta-candidate-id"),
   candidateEmail: document.getElementById("meta-candidate-email"),
   session: document.getElementById("meta-session"),
   score: document.getElementById("meta-score"),
@@ -70,7 +71,8 @@ function clearPendingPoll() {
 }
 
 function renderSession(data) {
-  dom.candidate.textContent = data.candidate_id || "";
+  dom.candidateName.textContent = data.candidate_name || "Candidate";
+  dom.candidateId.textContent = data.candidate_id || "-";
   dom.candidateEmail.textContent = data.candidate_email || "";
   dom.session.textContent = data.session_id || "-";
   dom.score.textContent = formatScore(data.final_score);

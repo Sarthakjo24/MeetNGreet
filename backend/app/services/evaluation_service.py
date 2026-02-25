@@ -1,16 +1,18 @@
-import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..models import CandidateResponse, CandidateSession, SessionQuestion
 from .llm_service import LLMScoringService
+from .mysql_sync_service import get_mysql_sync_service
 from .scoring_service import ScoringService
 from .transcription_service import TranscriptionService
 from .video_service import VideoAnalysisService
+
+logger = logging.getLogger(__name__)
 
 
 class EvaluationService:
@@ -19,8 +21,7 @@ class EvaluationService:
         self.video_service = VideoAnalysisService()
         self.scoring_service = ScoringService()
         self.llm_service = LLMScoringService()
-        self.evaluation_json_dir = Path(settings.evaluation_json_dir)
-        self.evaluation_json_dir.mkdir(parents=True, exist_ok=True)
+        self.mysql_sync_service = get_mysql_sync_service()
 
     def evaluate_session(self, db: Session, session_id: str) -> dict:
         session = db.scalar(select(CandidateSession).where(CandidateSession.id == session_id))
@@ -39,7 +40,9 @@ class EvaluationService:
 
         response_map = {r.question_id: r for r in responses}
         question_results: list[dict] = []
-        question_scores: list[float] = []
+        communication_total = 0.0
+        content_total = 0.0
+        confidence_total = 0.0
 
         for question in questions:
             response = response_map.get(question.question_id)
@@ -80,19 +83,14 @@ class EvaluationService:
                 llm_override=llm_scores,
             )
 
-            feedback_payload = {
-                "feedback": score["feedback"],
-                "strengths": score.get("strengths", []),
-                "weaknesses": score.get("weaknesses", []),
-            }
-
             response.communication_score = score["communication_score"]
             response.content_score = score["content_score"]
             response.confidence_score = score["confidence_score"]
             response.final_score = score["final_score"]
-            response.detailed_feedback = json.dumps(feedback_payload, ensure_ascii=False)
 
-            question_scores.append(score["final_score"])
+            communication_total += score["communication_score"]
+            content_total += score["content_score"]
+            confidence_total += score["confidence_score"]
             question_results.append(
                 {
                     "question_id": question.question_id,
@@ -109,10 +107,19 @@ class EvaluationService:
         if not question_results:
             raise ValueError("No responses available for evaluation")
 
-        final_score = round(sum(question_scores) / len(question_scores), 2)
+        evaluated_count = len(question_results)
+        weighted_total = (
+            (communication_total * self.scoring_service.weights["communication"])
+            + (content_total * self.scoring_service.weights["content"])
+            + (confidence_total * self.scoring_service.weights["confidence"])
+        )
+        final_score = round(weighted_total / evaluated_count, 2)
         status_label = self.scoring_service.classify_score(final_score)
 
         session.overall_score = final_score
+        session.communication_total = round(communication_total, 2)
+        session.content_total = round(content_total, 2)
+        session.confidence_total = round(confidence_total, 2)
         session.status_label = status_label
         session.status = "completed"
         session.evaluated_at = datetime.utcnow()
@@ -129,10 +136,10 @@ class EvaluationService:
             "submitted_at": session.evaluated_at.isoformat() if session.evaluated_at else None,
         }
 
-        self._persist_evaluation_json(session_id=session.id, payload=result)
-        return result
+        try:
+            self.mysql_sync_service.sync_session(source_db=db, session_id=session.id)
+        except Exception:
+            # Mirror sync failures must not break primary evaluation flow.
+            logger.exception("MySQL mirror sync failed after evaluating session %s", session.id)
 
-    def _persist_evaluation_json(self, session_id: str, payload: dict) -> None:
-        file_path = self.evaluation_json_dir / f"{session_id}.json"
-        with file_path.open("w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, indent=2)
+        return result

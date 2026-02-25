@@ -61,6 +61,36 @@ def _derive_name_from_email(email: str) -> str:
     return " ".join(part.title() for part in parts)
 
 
+def _normalize_profile_name(value: object) -> str | None:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return None
+    if "@" in text:
+        return None
+    return text
+
+
+def _extract_name_from_claims(claims: dict) -> str | None:
+    direct_name = _normalize_profile_name(claims.get("name"))
+    if direct_name:
+        return direct_name
+
+    given_name = _normalize_profile_name(claims.get("given_name"))
+    family_name = _normalize_profile_name(claims.get("family_name"))
+    combined = " ".join(part for part in [given_name, family_name] if part)
+    if combined:
+        return combined
+
+    return _normalize_profile_name(claims.get("nickname"))
+
+
+def _resolve_user_display_name(user: User) -> str:
+    name = _normalize_profile_name(user.name)
+    if name:
+        return name
+    return _derive_name_from_email(user.email)
+
+
 def _issue_session_cookie(response: Response, user: User) -> None:
     token = create_session_token(
         CurrentUser(
@@ -146,7 +176,7 @@ def session(current_user: CurrentUser = Depends(get_current_user), db: Session =
 
     return {
         "unique_id": user.unique_id,
-        "name": _derive_name_from_email(user.email),
+        "name": _resolve_user_display_name(user),
         "email": user.email,
         "provider": user.provider,
         "created_at": user.created_at,
@@ -245,12 +275,14 @@ def auth0_callback(
     email = str(claims.get("email", "")).strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Auth0 did not return a valid email.")
+    profile_name = _extract_name_from_claims(claims)
 
     user = db.scalar(select(User).where(User.email == email))
     if not user:
         provider_subject = str(claims.get("sub") or f"{provider}:{email}")
         user = User(
             unique_id=_stable_unique_id(provider_subject),
+            name=profile_name,
             email=email,
             provider=provider,
             created_at=datetime.now(timezone.utc),
@@ -258,10 +290,19 @@ def auth0_callback(
         db.add(user)
         db.commit()
         db.refresh(user)
-    elif user.provider != provider:
-        user.provider = provider
-        db.commit()
-        db.refresh(user)
+    else:
+        should_update = False
+
+        if user.provider != provider:
+            user.provider = provider
+            should_update = True
+        if profile_name and user.name != profile_name:
+            user.name = profile_name
+            should_update = True
+
+        if should_update:
+            db.commit()
+            db.refresh(user)
 
     response = RedirectResponse(url=safe_next, status_code=302)
     _issue_session_cookie(response, user)
