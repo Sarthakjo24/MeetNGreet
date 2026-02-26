@@ -8,14 +8,16 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
-from ..models import CandidateResponse, CandidateSession, SessionQuestion, User
+from ..models import CandidateResponse, CandidateSession, Score, SessionQuestion, User
 from ..schemas import (
     AdminDeleteOut,
     AdminResultOut,
+    AdminSessionScoreOut,
+    AdminSessionScoreUpdateIn,
     AdminSessionDetailOut,
     CandidateSessionOut,
     EvaluationSummaryOut,
@@ -39,6 +41,11 @@ mysql_sync_service = get_mysql_sync_service()
 _evaluation_service: EvaluationService | None = None
 _evaluation_lock = threading.Lock()
 _evaluation_inflight: set[str] = set()
+EVALUATOR_WEIGHTS = {
+    "communication": 0.45,
+    "content": 0.45,
+    "confidence": 0.10,
+}
 
 
 def _get_evaluation_service() -> EvaluationService:
@@ -125,7 +132,18 @@ def _resolve_session_candidate_identity(db: Session, session: CandidateSession) 
         return session_name, session_email
 
     lookup_key = (session.candidate_id or "").strip().lower()
-    user = db.scalar(select(User).where(User.email == lookup_key)) if lookup_key else None
+    user = (
+        db.scalar(
+            select(User).where(
+                or_(
+                    User.candidate_id == lookup_key,
+                    User.email == lookup_key,
+                )
+            )
+        )
+        if lookup_key
+        else None
+    )
     candidate_email = (session_email or (user.email if user else lookup_key) or "").strip().lower()
     candidate_name = _resolve_candidate_name(
         session_name or (user.name if user else None),
@@ -156,6 +174,10 @@ def _session_upload_counts(db: Session, session_id: str) -> tuple[int, int]:
     return int(total_questions), int(uploaded_count)
 
 
+def _get_session_score_row(db: Session, session_id: str) -> Score | None:
+    return db.scalar(select(Score).where(Score.session_id == session_id))
+
+
 def _schedule_session_evaluation_if_ready(
     db: Session,
     session: CandidateSession,
@@ -163,7 +185,8 @@ def _schedule_session_evaluation_if_ready(
     total_questions, uploaded_count = _session_upload_counts(db=db, session_id=session.id)
     if total_questions <= 0 or uploaded_count < total_questions:
         return False
-    if session.status == "completed" and session.overall_score is not None:
+    score_row = _get_session_score_row(db=db, session_id=session.id)
+    if session.status == "completed" and score_row and score_row.ai_total_score is not None:
         return True
 
     session.status = "submitted"
@@ -183,8 +206,12 @@ def start_candidate_session(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     session_id = str(uuid4())
-    candidate_id = current_user.email.strip().lower()
     user = db.scalar(select(User).where(User.unique_id == current_user.unique_id))
+    candidate_id = (
+        (user.candidate_id if user and user.candidate_id else current_user.email)
+        .strip()
+        .lower()
+    )
     candidate_email = (user.email if user and user.email else candidate_id).strip().lower()
     candidate_name = _resolve_candidate_name(
         user.name if user else None,
@@ -418,9 +445,13 @@ def list_admin_results(
 ):
     pending_session_ids = db.scalars(
         select(CandidateSession.id)
+        .outerjoin(
+            Score,
+            Score.session_id == CandidateSession.id,
+        )
         .where(
-            CandidateSession.status == "submitted",
-            CandidateSession.overall_score.is_(None),
+            CandidateSession.status.in_(("submitted", "completed")),
+            Score.ai_total_score.is_(None),
         )
         .order_by(CandidateSession.created_at.desc())
         .limit(20)
@@ -445,26 +476,35 @@ def list_admin_results(
             User.email.label("user_email"),
             CandidateSession.candidate_name.label("session_candidate_name"),
             CandidateSession.candidate_id.label("session_candidate_email"),
-            CandidateSession.overall_score.label("final_score"),
+            Score.ai_total_score.label("final_score"),
             CandidateSession.status_label.label("status_label"),
             CandidateSession.created_at.label("created_at"),
             func.coalesce(
                 CandidateSession.evaluated_at,
                 latest_response_subquery.c.submitted_at,
             ).label("submitted_at"),
-            CandidateSession.communication_total.label("communication_total"),
-            CandidateSession.content_total.label("content_total"),
-            CandidateSession.confidence_total.label("confidence_total"),
-            select(func.count())
-            .select_from(SessionQuestion)
-            .where(SessionQuestion.session_id == CandidateSession.id)
-            .scalar_subquery()
-            .label("question_count"),
+            Score.ai_communication_score.label("communication_avg"),
+            Score.ai_content_score.label("content_avg"),
+            Score.ai_confidence_score.label("confidence_avg"),
+            Score.evaluator_communication_score.label("eval_communication"),
+            Score.evaluator_content_score.label("eval_content"),
+            Score.evaluator_confidence_score.label("eval_confidence"),
+            Score.evaluator_total_score.label("eval_score"),
         )
-        .outerjoin(User, User.email == CandidateSession.candidate_id)
+        .outerjoin(
+            User,
+            or_(
+                User.candidate_id == CandidateSession.candidate_id,
+                User.email == CandidateSession.candidate_id,
+            ),
+        )
         .outerjoin(
             latest_response_subquery,
             latest_response_subquery.c.session_id == CandidateSession.id,
+        )
+        .outerjoin(
+            Score,
+            Score.session_id == CandidateSession.id,
         )
         .order_by(CandidateSession.created_at.desc())
         .limit(limit)
@@ -483,24 +523,123 @@ def list_admin_results(
             "status_label": row.status_label,
             "created_at": _as_utc(row.created_at),
             "submitted_at": _as_utc(row.submitted_at),
-            "communication_avg": (
-                (float(row.communication_total) / (max(int(row.question_count or 0), 1) * 10.0)) * 10.0
-                if (row.communication_total is not None and row.final_score is not None)
-                else None
-            ),
-            "content_avg": (
-                (float(row.content_total) / (max(int(row.question_count or 0), 1) * 10.0)) * 10.0
-                if (row.content_total is not None and row.final_score is not None)
-                else None
-            ),
-            "confidence_avg": (
-                (float(row.confidence_total) / (max(int(row.question_count or 0), 1) * 10.0)) * 10.0
-                if (row.confidence_total is not None and row.final_score is not None)
-                else None
-            ),
+            "communication_avg": row.communication_avg,
+            "content_avg": row.content_avg,
+            "confidence_avg": row.confidence_avg,
+            "eval_communication": row.eval_communication,
+            "eval_content": row.eval_content,
+            "eval_confidence": row.eval_confidence,
+            "eval_score": row.eval_score,
         }
         for row in rows
     ]
+
+
+@router.put("/admin/sessions/{session_id}/scores", response_model=AdminSessionScoreOut)
+def upsert_admin_session_scores(
+    session_id: str,
+    payload: AdminSessionScoreUpdateIn,
+    db: Session = Depends(get_db),
+):
+    session = db.scalar(select(CandidateSession).where(CandidateSession.id == session_id))
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    lookup_key = (session.candidate_id or "").strip().lower()
+    user = (
+        db.scalar(
+            select(User).where(
+                or_(
+                    User.candidate_id == lookup_key,
+                    User.email == lookup_key,
+                )
+            )
+        )
+        if lookup_key
+        else None
+    )
+    if not user or not user.candidate_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Candidate mapping is missing for this session, cannot persist evaluator scores.",
+        )
+
+    candidate_name, candidate_email = _resolve_session_candidate_identity(db=db, session=session)
+
+    score_row = db.scalar(select(Score).where(Score.session_id == session.id))
+    if not score_row:
+        score_row = Score(
+            session_id=session.id,
+            candidate_id=user.candidate_id,
+        )
+        db.add(score_row)
+
+    score_row.candidate_id = user.candidate_id
+    score_row.candidate_name = candidate_name
+    score_row.candidate_email = candidate_email
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "communication_score" in updates:
+        score_row.evaluator_communication_score = updates["communication_score"]
+    if "content_score" in updates:
+        score_row.evaluator_content_score = updates["content_score"]
+    if "confidence_score" in updates:
+        score_row.evaluator_confidence_score = updates["confidence_score"]
+
+    if "total_score" in updates:
+        score_row.evaluator_total_score = updates["total_score"]
+    elif any(
+        key in updates
+        for key in ("communication_score", "content_score", "confidence_score")
+    ):
+        if (
+            score_row.evaluator_communication_score is not None
+            and score_row.evaluator_content_score is not None
+            and score_row.evaluator_confidence_score is not None
+        ):
+            score_row.evaluator_total_score = round(
+                (
+                    score_row.evaluator_communication_score
+                    * EVALUATOR_WEIGHTS["communication"]
+                )
+                + (
+                    score_row.evaluator_content_score
+                    * EVALUATOR_WEIGHTS["content"]
+                )
+                + (
+                    score_row.evaluator_confidence_score
+                    * EVALUATOR_WEIGHTS["confidence"]
+                ),
+                2,
+            )
+        else:
+            score_row.evaluator_total_score = None
+
+    db.commit()
+    db.refresh(score_row)
+
+    try:
+        mysql_sync_service.sync_session(source_db=db, session_id=session.id)
+    except Exception:
+        logger.exception(
+            "MySQL mirror sync failed after evaluator score update for session %s",
+            session.id,
+        )
+
+    return {
+        "session_id": session.id,
+        "candidate_id": user.candidate_id,
+        "candidate_name": candidate_name,
+        "candidate_email": candidate_email,
+        "ai_communication_score": score_row.ai_communication_score,
+        "ai_content_score": score_row.ai_content_score,
+        "ai_confidence_score": score_row.ai_confidence_score,
+        "ai_total_score": score_row.ai_total_score,
+        "evaluator_communication_score": score_row.evaluator_communication_score,
+        "evaluator_content_score": score_row.evaluator_content_score,
+        "evaluator_confidence_score": score_row.evaluator_confidence_score,
+        "evaluator_total_score": score_row.evaluator_total_score,
+    }
 
 
 @router.get("/admin/sessions/{session_id}", response_model=AdminSessionDetailOut)
@@ -511,13 +650,24 @@ def get_admin_session_detail(
     session = db.scalar(select(CandidateSession).where(CandidateSession.id == session_id))
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session.status == "submitted" and session.overall_score is None:
+    score_row = db.scalar(select(Score).where(Score.session_id == session_id))
+    if (
+        session.status in ("submitted", "completed")
+        and (not score_row or score_row.ai_total_score is None)
+    ):
         _enqueue_session_evaluation(session_id)
 
     lookup_key = (session.candidate_id or "").strip().lower()
     user = None
     if lookup_key:
-        user = db.scalar(select(User).where(User.email == lookup_key))
+        user = db.scalar(
+            select(User).where(
+                or_(
+                    User.candidate_id == lookup_key,
+                    User.email == lookup_key,
+                )
+            )
+        )
     candidate_email = (session.candidate_email or (user.email if user else lookup_key) or "").strip().lower()
     candidate_name = _resolve_candidate_name(
         session.candidate_name or (user.name if user else None),
@@ -545,10 +695,7 @@ def get_admin_session_detail(
         submitted_at = max(r.created_at for r in responses)
 
     response_items: list[dict] = []
-    communication_scores = []
-    content_scores = []
-    confidence_scores = []
-    
+
     for question in questions:
         response = response_by_question.get(question.question_id)
         if not response:
@@ -561,10 +708,10 @@ def get_admin_session_detail(
                 "question_text": question.question_text,
                 "order_index": question.order_index,
                 "transcript": response.transcript or "",
-                "communication_score": response.communication_score,
-                "content_score": response.content_score,
-                "confidence_score": response.confidence_score,
-                "final_score": response.final_score,
+                "communication_score": None,
+                "content_score": None,
+                "confidence_score": None,
+                "final_score": None,
                 "feedback": None,
                 "strengths": [],
                 "weaknesses": [],
@@ -572,49 +719,39 @@ def get_admin_session_detail(
                 "uploaded_at": _as_utc(response.created_at),
             }
         )
-        
-        # Collect scores for averaging
-        if response.communication_score is not None:
-            communication_scores.append(response.communication_score)
-        if response.content_score is not None:
-            content_scores.append(response.content_score)
-        if response.confidence_score is not None:
-            confidence_scores.append(response.confidence_score)
-    
-    communication_avg = None
-    content_avg = None
-    confidence_avg = None
-
-    question_scale = max(len(questions), 1) * 10.0
-    if session.communication_total is not None:
-        communication_avg = (float(session.communication_total) / question_scale) * 10.0
-    elif communication_scores:
-        communication_avg = (sum(communication_scores) / question_scale) * 10.0
-
-    if session.content_total is not None:
-        content_avg = (float(session.content_total) / question_scale) * 10.0
-    elif content_scores:
-        content_avg = (sum(content_scores) / question_scale) * 10.0
-
-    if session.confidence_total is not None:
-        confidence_avg = (float(session.confidence_total) / question_scale) * 10.0
-    elif confidence_scores:
-        confidence_avg = (sum(confidence_scores) / question_scale) * 10.0
 
     return {
         "session_id": session.id,
         "candidate_id": user.unique_id if user else "",
         "candidate_name": candidate_name,
         "candidate_email": candidate_email,
-        "final_score": session.overall_score,
+        "final_score": score_row.ai_total_score if score_row else None,
         "status_label": session.status_label,
         "created_at": _as_utc(session.created_at),
         "submitted_at": _as_utc(submitted_at),
         "question_count": len(questions),
         "responses": response_items,
-        "communication_avg": communication_avg,
-        "content_avg": content_avg,
-        "confidence_avg": confidence_avg,
+        "communication_avg": (
+            score_row.ai_communication_score if score_row else None
+        ),
+        "content_avg": (
+            score_row.ai_content_score if score_row else None
+        ),
+        "confidence_avg": (
+            score_row.ai_confidence_score if score_row else None
+        ),
+        "eval_communication": (
+            score_row.evaluator_communication_score if score_row else None
+        ),
+        "eval_content": (
+            score_row.evaluator_content_score if score_row else None
+        ),
+        "eval_confidence": (
+            score_row.evaluator_confidence_score if score_row else None
+        ),
+        "eval_score": (
+            score_row.evaluator_total_score if score_row else None
+        ),
     }
 
 
@@ -665,6 +802,7 @@ def delete_admin_session(
     ).all()
     media_paths = [r.media_path for r in responses if r.media_path]
 
+    db.execute(delete(Score).where(Score.session_id == session_id))
     db.delete(session)
     db.commit()
 

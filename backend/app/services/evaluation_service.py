@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import CandidateResponse, CandidateSession, SessionQuestion
+from ..models import CandidateResponse, CandidateSession, Score, SessionQuestion, User
 from .llm_service import LLMScoringService
 from .mysql_sync_service import get_mysql_sync_service
 from .scoring_service import ScoringService
@@ -83,11 +83,6 @@ class EvaluationService:
                 llm_override=llm_scores,
             )
 
-            response.communication_score = score["communication_score"]
-            response.content_score = score["content_score"]
-            response.confidence_score = score["confidence_score"]
-            response.final_score = score["final_score"]
-
             communication_total += score["communication_score"]
             content_total += score["content_score"]
             confidence_total += score["confidence_score"]
@@ -116,13 +111,41 @@ class EvaluationService:
         final_score = round(weighted_total / evaluated_count, 2)
         status_label = self.scoring_service.classify_score(final_score)
 
-        session.overall_score = final_score
-        session.communication_total = round(communication_total, 2)
-        session.content_total = round(content_total, 2)
-        session.confidence_total = round(confidence_total, 2)
         session.status_label = status_label
         session.status = "completed"
         session.evaluated_at = datetime.utcnow()
+
+        ai_communication_score = round(communication_total / evaluated_count, 2)
+        ai_content_score = round(content_total / evaluated_count, 2)
+        ai_confidence_score = round(confidence_total / evaluated_count, 2)
+
+        score_candidate_id = (session.candidate_id or "").strip().lower()
+        score_user = (
+            db.scalar(select(User).where(User.candidate_id == score_candidate_id))
+            if score_candidate_id
+            else None
+        )
+        if score_user and score_user.candidate_id:
+            score_row = db.scalar(select(Score).where(Score.session_id == session.id))
+            if not score_row:
+                score_row = Score(
+                    session_id=session.id,
+                    candidate_id=score_user.candidate_id,
+                )
+                db.add(score_row)
+
+            score_row.candidate_id = score_user.candidate_id
+            score_row.candidate_name = session.candidate_name
+            score_row.candidate_email = session.candidate_email
+            score_row.ai_communication_score = ai_communication_score
+            score_row.ai_content_score = ai_content_score
+            score_row.ai_confidence_score = ai_confidence_score
+            score_row.ai_total_score = final_score
+        else:
+            logger.warning(
+                "Skipping score table upsert for session %s: missing user candidate_id mapping.",
+                session.id,
+            )
 
         db.commit()
 

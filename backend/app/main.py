@@ -8,7 +8,7 @@ from sqlalchemy import inspect, select, text
 
 from .config import settings
 from .database import Base, SessionLocal, engine
-from .models import CandidateResponse, CandidateSession, SessionQuestion, User
+from .models import CandidateResponse, CandidateSession, Score, SessionQuestion, User
 from .routers.auth import router as auth_router
 from .routers.interview import router as interview_router
 
@@ -44,16 +44,30 @@ def _ensure_users_name_column() -> None:
     except Exception:
         return
 
-    if "name" in column_names:
-        return
-
-    ddl = "ALTER TABLE users ADD COLUMN name VARCHAR(255) NULL"
-    if engine.dialect.name == "sqlite":
-        ddl = "ALTER TABLE users ADD COLUMN name VARCHAR(255)"
+    add_statements: list[str] = []
+    if "name" not in column_names:
+        if engine.dialect.name == "sqlite":
+            add_statements.append("ALTER TABLE users ADD COLUMN name VARCHAR(255)")
+        else:
+            add_statements.append("ALTER TABLE users ADD COLUMN name VARCHAR(255) NULL")
+    if "candidate_id" not in column_names:
+        if engine.dialect.name == "sqlite":
+            add_statements.append("ALTER TABLE users ADD COLUMN candidate_id VARCHAR(320)")
+        else:
+            add_statements.append("ALTER TABLE users ADD COLUMN candidate_id VARCHAR(320) NULL")
 
     try:
         with engine.begin() as conn:
-            conn.execute(text(ddl))
+            for statement in add_statements:
+                conn.execute(text(statement))
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX uq_users_candidate_id ON users (candidate_id)"))
+            except Exception:
+                try:
+                    conn.execute(text("CREATE INDEX ix_users_candidate_id ON users (candidate_id)"))
+                except Exception:
+                    # Keep startup resilient if index exists.
+                    pass
     except Exception:
         # Keep startup resilient if the column already exists.
         pass
@@ -70,11 +84,17 @@ def _backfill_user_names() -> None:
         for user in users:
             normalized_name = " ".join(str(user.name or "").strip().split())
             if normalized_name and "@" not in normalized_name:
-                continue
+                updated_name = normalized_name
+            else:
+                updated_name = _derive_name_from_email(user.email)
 
-            derived_name = _derive_name_from_email(user.email)
-            if user.name != derived_name:
-                user.name = derived_name
+            updated_candidate_id = (user.email or "").strip().lower() or None
+
+            if user.name != updated_name:
+                user.name = updated_name
+                changed = True
+            if user.candidate_id != updated_candidate_id:
+                user.candidate_id = updated_candidate_id
                 changed = True
 
         if changed:
@@ -115,12 +135,6 @@ def _ensure_candidate_sessions_columns() -> None:
         add_statements.append("ALTER TABLE candidate_sessions ADD COLUMN candidate_name VARCHAR(255) NULL")
     if "candidate_email" not in column_names:
         add_statements.append("ALTER TABLE candidate_sessions ADD COLUMN candidate_email VARCHAR(320) NULL")
-    if "communication_total" not in column_names:
-        add_statements.append("ALTER TABLE candidate_sessions ADD COLUMN communication_total FLOAT NULL")
-    if "content_total" not in column_names:
-        add_statements.append("ALTER TABLE candidate_sessions ADD COLUMN content_total FLOAT NULL")
-    if "confidence_total" not in column_names:
-        add_statements.append("ALTER TABLE candidate_sessions ADD COLUMN confidence_total FLOAT NULL")
 
     if not add_statements:
         return
@@ -179,12 +193,16 @@ def _migrate_candidate_responses_schema() -> None:
     has_attempt_no = "attempt_no" in column_names
     has_candidate_name = "candidate_name" in column_names
     has_candidate_email = "candidate_email" in column_names
+    has_legacy_score_columns = any(
+        name in column_names
+        for name in ("communication_score", "content_score", "confidence_score", "final_score")
+    )
 
     # Fast path: schema already in target shape.
-    if not has_attempt_no and has_candidate_name and has_candidate_email:
+    if not has_attempt_no and has_candidate_name and has_candidate_email and not has_legacy_score_columns:
         return
 
-    if engine.dialect.name == "sqlite" and has_attempt_no:
+    if engine.dialect.name == "sqlite" and (has_attempt_no or has_legacy_score_columns):
         try:
             with engine.begin() as conn:
                 conn.execute(text("PRAGMA foreign_keys=OFF"))
@@ -204,10 +222,6 @@ def _migrate_candidate_responses_schema() -> None:
                             media_path VARCHAR(500) NOT NULL,
                             duration_seconds FLOAT,
                             transcript TEXT,
-                            communication_score FLOAT,
-                            content_score FLOAT,
-                            confidence_score FLOAT,
-                            final_score FLOAT,
                             created_at DATETIME NOT NULL,
                             CONSTRAINT uq_response_question UNIQUE (session_id, question_id),
                             FOREIGN KEY(session_id) REFERENCES candidate_sessions (id)
@@ -239,10 +253,6 @@ def _migrate_candidate_responses_schema() -> None:
                             media_path,
                             duration_seconds,
                             transcript,
-                            communication_score,
-                            content_score,
-                            confidence_score,
-                            final_score,
                             created_at
                         )
                         SELECT
@@ -260,10 +270,6 @@ def _migrate_candidate_responses_schema() -> None:
                             r.media_path,
                             r.duration_seconds,
                             r.transcript,
-                            r.communication_score,
-                            r.content_score,
-                            r.confidence_score,
-                            r.final_score,
                             r.created_at
                         FROM ranked r
                         LEFT JOIN candidate_sessions cs
@@ -366,6 +372,22 @@ def _migrate_candidate_responses_schema() -> None:
                         )
                     except Exception:
                         pass
+
+            for legacy_score_col in (
+                "communication_score",
+                "content_score",
+                "confidence_score",
+                "final_score",
+            ):
+                if legacy_score_col in column_names:
+                    try:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE candidate_responses DROP COLUMN {legacy_score_col}"
+                            )
+                        )
+                    except Exception:
+                        pass
     except Exception:
         # Keep startup resilient if migration is not supported by the active engine.
         pass
@@ -420,7 +442,7 @@ def _backfill_candidate_response_identity_fields() -> None:
         db.close()
 
 
-def _backfill_session_and_question_identity_and_totals() -> None:
+def _backfill_session_and_question_identity() -> None:
     db = SessionLocal()
     try:
         sessions = db.scalars(select(CandidateSession)).all()
@@ -433,11 +455,6 @@ def _backfill_session_and_question_identity_and_totals() -> None:
             for user in users
             if user.email
         }
-
-        responses = db.scalars(select(CandidateResponse)).all()
-        responses_by_session: dict[str, list[CandidateResponse]] = {}
-        for response in responses:
-            responses_by_session.setdefault(response.session_id, []).append(response)
 
         questions = db.scalars(select(SessionQuestion)).all()
         questions_by_session: dict[str, list[SessionQuestion]] = {}
@@ -455,27 +472,12 @@ def _backfill_session_and_question_identity_and_totals() -> None:
             session_name = " ".join(str(session.candidate_name or "").strip().split())
             candidate_name = session_name if session_name and "@" not in session_name else (user_name or _derive_name_from_email(candidate_email))
 
-            session_responses = responses_by_session.get(session.id, [])
-            comm_values = [float(r.communication_score) for r in session_responses if r.communication_score is not None]
-            content_values = [float(r.content_score) for r in session_responses if r.content_score is not None]
-            confidence_values = [float(r.confidence_score) for r in session_responses if r.confidence_score is not None]
-
-            comm_total = round(sum(comm_values), 2) if comm_values else None
-            content_total = round(sum(content_values), 2) if content_values else None
-            confidence_total = round(sum(confidence_values), 2) if confidence_values else None
-
             if (
                 session.candidate_email != candidate_email
                 or session.candidate_name != candidate_name
-                or session.communication_total != comm_total
-                or session.content_total != content_total
-                or session.confidence_total != confidence_total
             ):
                 session.candidate_email = candidate_email
                 session.candidate_name = candidate_name
-                session.communication_total = comm_total
-                session.content_total = content_total
-                session.confidence_total = confidence_total
                 changed = True
 
             for question in questions_by_session.get(session.id, []):
@@ -492,18 +494,310 @@ def _backfill_session_and_question_identity_and_totals() -> None:
         db.close()
 
 
+def _ensure_scores_table() -> None:
+    try:
+        Score.__table__.create(bind=engine, checkfirst=True)
+    except Exception:
+        pass
+
+
+def _backfill_scores_from_legacy_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        session_columns = {column["name"] for column in inspector.get_columns("candidate_sessions")}
+        response_columns = {column["name"] for column in inspector.get_columns("candidate_responses")}
+    except Exception:
+        return
+
+    has_session_scores = any(
+        name in session_columns
+        for name in ("overall_score", "communication_total", "content_total", "confidence_total")
+    )
+    has_response_scores = any(
+        name in response_columns
+        for name in ("communication_score", "content_score", "confidence_score", "final_score")
+    )
+    if not has_session_scores and not has_response_scores:
+        return
+
+    db = SessionLocal()
+    try:
+        sessions = db.scalars(select(CandidateSession)).all()
+        if not sessions:
+            return
+
+        for session in sessions:
+            candidate_id = (session.candidate_id or "").strip().lower()
+            if not candidate_id:
+                continue
+
+            user = db.scalar(select(User).where(User.candidate_id == candidate_id))
+            if not user or not user.candidate_id:
+                continue
+
+            ai_total: float | None = None
+            ai_communication: float | None = None
+            ai_content: float | None = None
+            ai_confidence: float | None = None
+
+            if has_session_scores:
+                session_score_select = ", ".join(
+                    [
+                        "overall_score" if "overall_score" in session_columns else "NULL AS overall_score",
+                        (
+                            "communication_total"
+                            if "communication_total" in session_columns
+                            else "NULL AS communication_total"
+                        ),
+                        "content_total" if "content_total" in session_columns else "NULL AS content_total",
+                        (
+                            "confidence_total"
+                            if "confidence_total" in session_columns
+                            else "NULL AS confidence_total"
+                        ),
+                    ]
+                )
+                session_legacy = db.execute(
+                    text(
+                        f"""
+                        SELECT {session_score_select}
+                        FROM candidate_sessions
+                        WHERE id = :session_id
+                        """
+                    ),
+                    {"session_id": session.id},
+                ).mappings().first()
+                if session_legacy:
+                    question_count = (
+                        db.scalar(
+                            select(func.count())
+                            .select_from(SessionQuestion)
+                            .where(SessionQuestion.session_id == session.id)
+                        )
+                        or 0
+                    )
+                    ai_total = (
+                        float(session_legacy["overall_score"])
+                        if session_legacy["overall_score"] is not None
+                        else None
+                    )
+                    if question_count > 0:
+                        if session_legacy["communication_total"] is not None:
+                            ai_communication = round(
+                                float(session_legacy["communication_total"]) / float(question_count),
+                                2,
+                            )
+                        if session_legacy["content_total"] is not None:
+                            ai_content = round(
+                                float(session_legacy["content_total"]) / float(question_count),
+                                2,
+                            )
+                        if session_legacy["confidence_total"] is not None:
+                            ai_confidence = round(
+                                float(session_legacy["confidence_total"]) / float(question_count),
+                                2,
+                            )
+
+            if has_response_scores and (
+                ai_total is None
+                or ai_communication is None
+                or ai_content is None
+                or ai_confidence is None
+            ):
+                response_score_select = ", ".join(
+                    [
+                        (
+                            "AVG(communication_score) AS avg_communication"
+                            if "communication_score" in response_columns
+                            else "NULL AS avg_communication"
+                        ),
+                        (
+                            "AVG(content_score) AS avg_content"
+                            if "content_score" in response_columns
+                            else "NULL AS avg_content"
+                        ),
+                        (
+                            "AVG(confidence_score) AS avg_confidence"
+                            if "confidence_score" in response_columns
+                            else "NULL AS avg_confidence"
+                        ),
+                        (
+                            "AVG(final_score) AS avg_final"
+                            if "final_score" in response_columns
+                            else "NULL AS avg_final"
+                        ),
+                    ]
+                )
+                response_legacy = db.execute(
+                    text(
+                        f"""
+                        SELECT
+                            {response_score_select}
+                        FROM candidate_responses
+                        WHERE session_id = :session_id
+                        """
+                    ),
+                    {"session_id": session.id},
+                ).mappings().first()
+                if response_legacy:
+                    if ai_communication is None and response_legacy["avg_communication"] is not None:
+                        ai_communication = round(float(response_legacy["avg_communication"]), 2)
+                    if ai_content is None and response_legacy["avg_content"] is not None:
+                        ai_content = round(float(response_legacy["avg_content"]), 2)
+                    if ai_confidence is None and response_legacy["avg_confidence"] is not None:
+                        ai_confidence = round(float(response_legacy["avg_confidence"]), 2)
+                    if ai_total is None and response_legacy["avg_final"] is not None:
+                        ai_total = round(float(response_legacy["avg_final"]), 2)
+
+            score_row = db.scalar(select(Score).where(Score.session_id == session.id))
+            if not score_row:
+                score_row = Score(session_id=session.id, candidate_id=user.candidate_id)
+                db.add(score_row)
+
+            score_row.candidate_id = user.candidate_id
+            score_row.candidate_name = session.candidate_name
+            score_row.candidate_email = session.candidate_email
+            if ai_communication is not None:
+                score_row.ai_communication_score = ai_communication
+            if ai_content is not None:
+                score_row.ai_content_score = ai_content
+            if ai_confidence is not None:
+                score_row.ai_confidence_score = ai_confidence
+            if ai_total is not None:
+                score_row.ai_total_score = ai_total
+
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _drop_legacy_score_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        session_columns = {column["name"] for column in inspector.get_columns("candidate_sessions")}
+        response_columns = {column["name"] for column in inspector.get_columns("candidate_responses")}
+    except Exception:
+        return
+
+    session_score_columns = [
+        "overall_score",
+        "communication_total",
+        "content_total",
+        "confidence_total",
+    ]
+    response_score_columns = [
+        "communication_score",
+        "content_score",
+        "confidence_score",
+        "final_score",
+    ]
+
+    if engine.dialect.name == "sqlite":
+        if any(name in session_columns for name in session_score_columns):
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("PRAGMA foreign_keys=OFF"))
+                    conn.execute(text("DROP TABLE IF EXISTS candidate_sessions_new"))
+                    conn.execute(
+                        text(
+                            """
+                            CREATE TABLE candidate_sessions_new (
+                                id VARCHAR(36) NOT NULL PRIMARY KEY,
+                                candidate_id VARCHAR(320) NOT NULL,
+                                candidate_name VARCHAR(255),
+                                candidate_email VARCHAR(320),
+                                status VARCHAR(24) NOT NULL,
+                                status_label VARCHAR(24),
+                                created_at DATETIME NOT NULL,
+                                evaluated_at DATETIME
+                            )
+                            """
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO candidate_sessions_new (
+                                id,
+                                candidate_id,
+                                candidate_name,
+                                candidate_email,
+                                status,
+                                status_label,
+                                created_at,
+                                evaluated_at
+                            )
+                            SELECT
+                                id,
+                                candidate_id,
+                                candidate_name,
+                                candidate_email,
+                                status,
+                                status_label,
+                                created_at,
+                                evaluated_at
+                            FROM candidate_sessions
+                            """
+                        )
+                    )
+                    conn.execute(text("DROP TABLE candidate_sessions"))
+                    conn.execute(text("ALTER TABLE candidate_sessions_new RENAME TO candidate_sessions"))
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_candidate_sessions_id "
+                            "ON candidate_sessions (id)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_candidate_sessions_candidate_id "
+                            "ON candidate_sessions (candidate_id)"
+                        )
+                    )
+                    conn.execute(text("PRAGMA foreign_keys=ON"))
+            except Exception:
+                pass
+
+        # candidate_responses score columns are removed in _migrate_candidate_responses_schema.
+        return
+
+    with engine.begin() as conn:
+        for column_name in session_score_columns:
+            if column_name in session_columns:
+                try:
+                    conn.execute(
+                        text(f"ALTER TABLE candidate_sessions DROP COLUMN {column_name}")
+                    )
+                except Exception:
+                    continue
+        for column_name in response_score_columns:
+            if column_name in response_columns:
+                try:
+                    conn.execute(
+                        text(f"ALTER TABLE candidate_responses DROP COLUMN {column_name}")
+                    )
+                except Exception:
+                    continue
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
     Path("./backend/storage").mkdir(parents=True, exist_ok=True)
+    _ensure_users_name_column()
     Base.metadata.create_all(bind=engine)
+    _ensure_scores_table()
     _ensure_users_name_column()
     _backfill_user_names()
     _ensure_candidate_sessions_columns()
     _ensure_session_questions_columns()
     _remove_candidate_response_detailed_feedback_column()
+    _backfill_scores_from_legacy_columns()
     _migrate_candidate_responses_schema()
-    _backfill_session_and_question_identity_and_totals()
+    _drop_legacy_score_columns()
+    _backfill_session_and_question_identity()
     _backfill_candidate_response_identity_fields()
 
     if engine.dialect.name == "mysql":
@@ -571,6 +865,12 @@ def serve_interview() -> FileResponse:
 @app.get("/admin")
 def serve_admin_portal() -> FileResponse:
     return FileResponse(static_dir / "admin.html", headers=NO_CACHE_HEADERS)
+
+
+@app.get("/admin/sessions/{session_id}/videos")
+def serve_admin_session_videos(session_id: str) -> FileResponse:
+    _ = session_id
+    return FileResponse(static_dir / "admin_videos.html", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/admin/sessions/{session_id}")

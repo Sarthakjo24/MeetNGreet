@@ -20,10 +20,12 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     unique_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    candidate_id: Mapped[str | None] = mapped_column(String(320), unique=True, index=True, nullable=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     provider: Mapped[str] = mapped_column(String(64), default="google")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    scores: Mapped[list["Score"]] = relationship("Score", back_populates="user")
 
 
 class CandidateSession(Base):
@@ -34,10 +36,6 @@ class CandidateSession(Base):
     candidate_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     candidate_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="in_progress")
-    overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    communication_total: Mapped[float | None] = mapped_column(Float, nullable=True)
-    content_total: Mapped[float | None] = mapped_column(Float, nullable=True)
-    confidence_total: Mapped[float | None] = mapped_column(Float, nullable=True)
     status_label: Mapped[str | None] = mapped_column(String(24), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -51,6 +49,12 @@ class CandidateSession(Base):
         "CandidateResponse",
         back_populates="session",
         cascade="all, delete-orphan",
+    )
+    score: Mapped["Score | None"] = relationship(
+        "Score",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 
@@ -95,11 +99,42 @@ class CandidateResponse(Base):
 
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    communication_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    content_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     session: Mapped[CandidateSession] = relationship("CandidateSession", back_populates="responses")
+
+
+class Score(Base):
+    __tablename__ = "scores"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            name="uq_scores_session",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("candidate_sessions.id"), index=True)
+    candidate_id: Mapped[str] = mapped_column(ForeignKey("users.candidate_id"), index=True)
+    candidate_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    candidate_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
+    ai_communication_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_content_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_total_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    evaluator_communication_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evaluator_content_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evaluator_confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evaluator_total_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="scores")
+    session: Mapped[CandidateSession] = relationship("CandidateSession", back_populates="score")

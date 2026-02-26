@@ -282,6 +282,7 @@ def auth0_callback(
         provider_subject = str(claims.get("sub") or f"{provider}:{email}")
         user = User(
             unique_id=_stable_unique_id(provider_subject),
+            candidate_id=email,
             name=profile_name,
             email=email,
             provider=provider,
@@ -298,6 +299,9 @@ def auth0_callback(
             should_update = True
         if profile_name and user.name != profile_name:
             user.name = profile_name
+            should_update = True
+        if user.candidate_id != email:
+            user.candidate_id = email
             should_update = True
 
         if should_update:

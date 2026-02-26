@@ -1,13 +1,13 @@
 import logging
 from urllib.parse import quote_plus
 
-from sqlalchemy import delete, inspect, select, text
+from sqlalchemy import delete, inspect, or_, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import settings
 from ..database import Base, engine as primary_engine
-from ..models import CandidateResponse, CandidateSession, SessionQuestion, User
+from ..models import CandidateResponse, CandidateSession, Score, SessionQuestion, User
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ class MysqlSyncService:
                 future=True,
             )
             self.enabled = True
+            self._ensure_target_schema()
         except Exception:
             logger.exception("MySQL sync disabled: failed to initialize MySQL engine.")
 
@@ -71,28 +72,68 @@ class MysqlSyncService:
         if not self.enabled or not self._engine:
             return
 
+        pre_inspector = inspect(self._engine)
+        pre_tables = set(pre_inspector.get_table_names())
+        if "users" in pre_tables:
+            pre_users_cols = {column["name"] for column in pre_inspector.get_columns("users")}
+            with self._engine.begin() as conn:
+                if "name" not in pre_users_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR(255) NULL"))
+                if "candidate_id" not in pre_users_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN candidate_id VARCHAR(320) NULL"))
+                try:
+                    conn.execute(text("CREATE UNIQUE INDEX uq_users_candidate_id ON users (candidate_id)"))
+                except Exception:
+                    try:
+                        conn.execute(text("CREATE INDEX ix_users_candidate_id ON users (candidate_id)"))
+                    except Exception:
+                        pass
+
         Base.metadata.create_all(bind=self._engine)
+        Score.__table__.create(bind=self._engine, checkfirst=True)
         inspector = inspect(self._engine)
 
+        table_names = set(inspector.get_table_names())
         users_cols = {column["name"] for column in inspector.get_columns("users")}
         session_cols = {column["name"] for column in inspector.get_columns("candidate_sessions")}
         question_cols = {column["name"] for column in inspector.get_columns("session_questions")}
         response_cols = {column["name"] for column in inspector.get_columns("candidate_responses")}
+        score_cols = (
+            {column["name"] for column in inspector.get_columns("scores")}
+            if "scores" in table_names
+            else set()
+        )
 
         with self._engine.begin() as conn:
             if "name" not in users_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR(255) NULL"))
+            if "candidate_id" not in users_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN candidate_id VARCHAR(320) NULL"))
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX uq_users_candidate_id ON users (candidate_id)"))
+            except Exception:
+                try:
+                    conn.execute(text("CREATE INDEX ix_users_candidate_id ON users (candidate_id)"))
+                except Exception:
+                    pass
 
             if "candidate_name" not in session_cols:
                 conn.execute(text("ALTER TABLE candidate_sessions ADD COLUMN candidate_name VARCHAR(255) NULL"))
             if "candidate_email" not in session_cols:
                 conn.execute(text("ALTER TABLE candidate_sessions ADD COLUMN candidate_email VARCHAR(320) NULL"))
-            if "communication_total" not in session_cols:
-                conn.execute(text("ALTER TABLE candidate_sessions ADD COLUMN communication_total FLOAT NULL"))
-            if "content_total" not in session_cols:
-                conn.execute(text("ALTER TABLE candidate_sessions ADD COLUMN content_total FLOAT NULL"))
-            if "confidence_total" not in session_cols:
-                conn.execute(text("ALTER TABLE candidate_sessions ADD COLUMN confidence_total FLOAT NULL"))
+            for legacy_col in (
+                "overall_score",
+                "communication_total",
+                "content_total",
+                "confidence_total",
+            ):
+                if legacy_col in session_cols:
+                    try:
+                        conn.execute(
+                            text(f"ALTER TABLE candidate_sessions DROP COLUMN {legacy_col}")
+                        )
+                    except Exception:
+                        pass
 
             if "candidate_name" not in question_cols:
                 conn.execute(text("ALTER TABLE session_questions ADD COLUMN candidate_name VARCHAR(255) NULL"))
@@ -110,6 +151,45 @@ class MysqlSyncService:
                         "MODIFY COLUMN attempt_no INT NOT NULL DEFAULT 1"
                     )
                 )
+            for legacy_col in (
+                "communication_score",
+                "content_score",
+                "confidence_score",
+                "final_score",
+            ):
+                if legacy_col in response_cols:
+                    try:
+                        conn.execute(
+                            text(f"ALTER TABLE candidate_responses DROP COLUMN {legacy_col}")
+                        )
+                    except Exception:
+                        pass
+
+            if "scores" in table_names:
+                if "candidate_name" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN candidate_name VARCHAR(255) NULL"))
+                if "candidate_email" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN candidate_email VARCHAR(320) NULL"))
+                if "ai_communication_score" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_communication_score FLOAT NULL"))
+                if "ai_content_score" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_content_score FLOAT NULL"))
+                if "ai_confidence_score" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_confidence_score FLOAT NULL"))
+                if "ai_total_score" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_total_score FLOAT NULL"))
+                if "evaluator_communication_score" not in score_cols:
+                    conn.execute(
+                        text("ALTER TABLE scores ADD COLUMN evaluator_communication_score FLOAT NULL")
+                    )
+                if "evaluator_content_score" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN evaluator_content_score FLOAT NULL"))
+                if "evaluator_confidence_score" not in score_cols:
+                    conn.execute(
+                        text("ALTER TABLE scores ADD COLUMN evaluator_confidence_score FLOAT NULL")
+                    )
+                if "evaluator_total_score" not in score_cols:
+                    conn.execute(text("ALTER TABLE scores ADD COLUMN evaluator_total_score FLOAT NULL"))
 
     def sync_session(self, source_db: Session, session_id: str) -> None:
         if not self.enabled or not self._session_factory:
@@ -130,23 +210,45 @@ class MysqlSyncService:
             response_rows = source_db.scalars(
                 select(CandidateResponse).where(CandidateResponse.session_id == session_id)
             ).all()
+            source_score_row = source_db.scalar(
+                select(Score).where(Score.session_id == session_id)
+            )
 
             lookup_email = (
                 (session_row.candidate_email or session_row.candidate_id or "").strip().lower()
             )
             user_row = (
-                source_db.scalar(select(User).where(User.email == lookup_email))
+                source_db.scalar(
+                    select(User).where(
+                        or_(
+                            User.candidate_id == lookup_email,
+                            User.email == lookup_email,
+                        )
+                    )
+                )
                 if lookup_email
                 else None
             )
+            if not user_row and source_score_row and source_score_row.candidate_id:
+                user_row = source_db.scalar(
+                    select(User).where(User.candidate_id == source_score_row.candidate_id)
+                )
 
             target_db = self._session_factory()
             try:
                 if user_row:
-                    target_user = target_db.scalar(select(User).where(User.email == user_row.email))
+                    target_user = target_db.scalar(
+                        select(User).where(
+                            or_(
+                                User.candidate_id == user_row.candidate_id,
+                                User.email == user_row.email,
+                            )
+                        )
+                    )
                     if not target_user:
                         target_user = User(
                             unique_id=user_row.unique_id,
+                            candidate_id=user_row.candidate_id,
                             name=user_row.name,
                             email=user_row.email,
                             provider=user_row.provider,
@@ -155,6 +257,7 @@ class MysqlSyncService:
                         target_db.add(target_user)
                     else:
                         target_user.unique_id = user_row.unique_id
+                        target_user.candidate_id = user_row.candidate_id
                         target_user.name = user_row.name
                         target_user.provider = user_row.provider
                         target_user.created_at = user_row.created_at
@@ -169,10 +272,6 @@ class MysqlSyncService:
                         candidate_name=session_row.candidate_name,
                         candidate_email=session_row.candidate_email,
                         status=session_row.status,
-                        overall_score=session_row.overall_score,
-                        communication_total=session_row.communication_total,
-                        content_total=session_row.content_total,
-                        confidence_total=session_row.confidence_total,
                         status_label=session_row.status_label,
                         created_at=session_row.created_at,
                         evaluated_at=session_row.evaluated_at,
@@ -183,10 +282,6 @@ class MysqlSyncService:
                     target_session.candidate_name = session_row.candidate_name
                     target_session.candidate_email = session_row.candidate_email
                     target_session.status = session_row.status
-                    target_session.overall_score = session_row.overall_score
-                    target_session.communication_total = session_row.communication_total
-                    target_session.content_total = session_row.content_total
-                    target_session.confidence_total = session_row.confidence_total
                     target_session.status_label = session_row.status_label
                     target_session.created_at = session_row.created_at
                     target_session.evaluated_at = session_row.evaluated_at
@@ -253,10 +348,6 @@ class MysqlSyncService:
                             media_path=response.media_path,
                             duration_seconds=response.duration_seconds,
                             transcript=response.transcript,
-                            communication_score=response.communication_score,
-                            content_score=response.content_score,
-                            confidence_score=response.confidence_score,
-                            final_score=response.final_score,
                             created_at=response.created_at,
                         )
                         target_db.add(target_response)
@@ -269,15 +360,60 @@ class MysqlSyncService:
                         target_response.media_path = response.media_path
                         target_response.duration_seconds = response.duration_seconds
                         target_response.transcript = response.transcript
-                        target_response.communication_score = response.communication_score
-                        target_response.content_score = response.content_score
-                        target_response.confidence_score = response.confidence_score
-                        target_response.final_score = response.final_score
                         target_response.created_at = response.created_at
 
                 for existing in existing_responses:
                     if existing.question_id not in source_response_ids:
                         target_db.delete(existing)
+
+                target_score = target_db.scalar(
+                    select(Score).where(Score.session_id == session_id)
+                )
+                if source_score_row:
+                    score_candidate_id = (
+                        source_score_row.candidate_id or session_row.candidate_id or ""
+                    ).strip().lower()
+                    score_target_user = (
+                        target_db.scalar(select(User).where(User.candidate_id == score_candidate_id))
+                        if score_candidate_id
+                        else None
+                    )
+
+                    if score_target_user:
+                        if not target_score:
+                            target_score = Score(
+                                session_id=source_score_row.session_id,
+                                candidate_id=score_candidate_id,
+                            )
+                            target_db.add(target_score)
+
+                        target_score.candidate_id = score_candidate_id
+                        target_score.candidate_name = source_score_row.candidate_name
+                        target_score.candidate_email = source_score_row.candidate_email
+                        target_score.ai_communication_score = source_score_row.ai_communication_score
+                        target_score.ai_content_score = source_score_row.ai_content_score
+                        target_score.ai_confidence_score = source_score_row.ai_confidence_score
+                        target_score.ai_total_score = source_score_row.ai_total_score
+                        target_score.evaluator_communication_score = (
+                            source_score_row.evaluator_communication_score
+                        )
+                        target_score.evaluator_content_score = (
+                            source_score_row.evaluator_content_score
+                        )
+                        target_score.evaluator_confidence_score = (
+                            source_score_row.evaluator_confidence_score
+                        )
+                        target_score.evaluator_total_score = source_score_row.evaluator_total_score
+                        target_score.created_at = source_score_row.created_at
+                        target_score.updated_at = source_score_row.updated_at
+                    else:
+                        logger.warning(
+                            "Skipping score sync for session %s because user candidate_id %s is missing in target.",
+                            session_id,
+                            score_candidate_id or "<empty>",
+                        )
+                elif target_score:
+                    target_db.delete(target_score)
 
                 target_db.commit()
             except Exception:
@@ -301,6 +437,9 @@ class MysqlSyncService:
         try:
             target_db = self._session_factory()
             try:
+                target_db.execute(
+                    delete(Score).where(Score.session_id == session_id)
+                )
                 target_db.execute(
                     delete(CandidateResponse).where(CandidateResponse.session_id == session_id)
                 )

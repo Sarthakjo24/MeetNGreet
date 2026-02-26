@@ -88,7 +88,7 @@ AUTH0_LOGOUT_URL=http://127.0.0.1:8000/
 3. Start server:
 
 ```bash
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend/app
+python app.py
 ```
 
 4. Open:
@@ -97,5 +97,12 @@ uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir 
 http://127.0.0.1:8000/
 ```
 
-Note: keep `--reload-dir backend/app` while developing.  
-If Uvicorn watches the whole project, writing interview media/evaluation files can trigger reloads during upload and surface as browser `Failed to fetch`.
+Optional env vars for launcher:
+
+```text
+APP_HOST=127.0.0.1
+APP_PORT=8000
+APP_RELOAD=true
+```
+
+The launcher already watches only `backend/app` to avoid reloads caused by media writes.

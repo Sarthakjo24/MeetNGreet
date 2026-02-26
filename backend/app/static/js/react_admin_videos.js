@@ -1,0 +1,47 @@
+(() => {
+  const root = document.getElementById("root");
+  if (!root) return;
+
+  root.innerHTML = `
+    <main class="relative min-h-screen overflow-hidden px-4 py-6 sm:px-6">
+      <div class="absolute inset-0 bg-[radial-gradient(circle_at_15%_10%,rgba(22,173,217,.22),transparent_38%),radial-gradient(circle_at_90%_90%,rgba(126,221,250,.16),transparent_44%)]"></div>
+      <div class="relative mx-auto w-full max-w-7xl space-y-5">
+        <header class="rounded-2xl border border-brand-400/35 bg-slate-900/80 p-5 shadow-[0_24px_70px_rgba(0,0,0,.42)] backdrop-blur-xl">
+          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p class="text-xs font-semibold tracking-[.18em] text-brand-400">VIDEO RESPONSES</p>
+              <h1 class="mt-1 text-2xl font-bold text-white sm:text-3xl">Candidate Video Responses</h1>
+              <p class="mt-1 text-sm text-slate-300">Question-wise video recordings only</p>
+              <p class="mt-2 text-sm text-slate-200">
+                <span class="font-semibold text-slate-300">Candidate:</span>
+                <span id="top-candidate-name" class="text-white">-</span>
+                <span class="mx-2 text-slate-500">|</span>
+                <span class="font-semibold text-slate-300">Email:</span>
+                <span id="top-candidate-email" class="text-white">-</span>
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-3">
+              <a href="/admin" class="inline-flex items-center rounded-lg border border-[#ffb15c]/75 bg-gradient-to-b from-[#ff9f2e] to-[#d97800] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(255,137,4,.35)] hover:brightness-105">
+                Back to Dashboard
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <section class="rounded-2xl border border-brand-400/35 bg-slate-900/80 p-5 shadow-[0_20px_55px_rgba(0,0,0,.38)]">
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate Name: </span><span id="meta-candidate-name" class="text-white">-</span></div>
+            <div class="rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate Email: </span><span id="meta-candidate-email" class="text-white">-</span></div>
+            <div class="rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Candidate ID: </span><span id="meta-candidate-id" class="text-white">-</span></div>
+            <div class="rounded-xl border border-brand-400/30 bg-slate-800/65 p-3 text-sm"><span class="font-semibold text-slate-300">Session ID: </span><span id="meta-session" class="text-white">-</span></div>
+          </div>
+          <p id="video-status" class="mt-4 rounded-lg border border-brand-400/25 bg-slate-800/65 p-3 text-sm text-slate-200" aria-live="polite">
+            Loading candidate video responses...
+          </p>
+        </section>
+
+        <section id="video-response-list" class="space-y-4"></section>
+      </div>
+    </main>
+  `;
+})();

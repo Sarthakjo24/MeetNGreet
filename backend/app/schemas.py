@@ -74,6 +74,10 @@ class AdminResultOut(BaseModel):
     communication_avg: float | None = None
     content_avg: float | None = None
     confidence_avg: float | None = None
+    eval_communication: float | None = None
+    eval_content: float | None = None
+    eval_confidence: float | None = None
+    eval_score: float | None = None
 
 
 class AdminQuestionResponseOut(BaseModel):
@@ -107,6 +111,32 @@ class AdminSessionDetailOut(BaseModel):
     communication_avg: float | None = None
     content_avg: float | None = None
     confidence_avg: float | None = None
+    eval_communication: float | None = None
+    eval_content: float | None = None
+    eval_confidence: float | None = None
+    eval_score: float | None = None
+
+
+class AdminSessionScoreUpdateIn(BaseModel):
+    communication_score: float | None = Field(default=None, ge=0.0, le=10.0)
+    content_score: float | None = Field(default=None, ge=0.0, le=10.0)
+    confidence_score: float | None = Field(default=None, ge=0.0, le=10.0)
+    total_score: float | None = Field(default=None, ge=0.0, le=10.0)
+
+
+class AdminSessionScoreOut(BaseModel):
+    session_id: str
+    candidate_id: str
+    candidate_name: str
+    candidate_email: str
+    ai_communication_score: float | None = None
+    ai_content_score: float | None = None
+    ai_confidence_score: float | None = None
+    ai_total_score: float | None = None
+    evaluator_communication_score: float | None = None
+    evaluator_content_score: float | None = None
+    evaluator_confidence_score: float | None = None
+    evaluator_total_score: float | None = None
 
 
 class AdminDeleteOut(BaseModel):

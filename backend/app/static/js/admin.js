@@ -1,10 +1,17 @@
 const api = {
   results: "/api/admin/results",
   sessionDelete: (sessionId) => `/api/admin/sessions/${sessionId}`,
+  sessionScores: (sessionId) => `/api/admin/sessions/${sessionId}/scores`,
+  sessionVideos: (sessionId) => `/admin/sessions/${sessionId}/videos`,
   sessionStandard: (sessionId) => `/admin/sessions/${sessionId}`
 };
 const RESULTS_LIMIT = 200;
 const ADMIN_FETCH_TIMEOUT_MS = 15000;
+const EVALUATOR_TOTAL_WEIGHTS = Object.freeze({
+  communication: 0.45,
+  content: 0.45,
+  confidence: 0.10
+});
 
 const dom = {
   body: document.getElementById("admin-results-body"),
@@ -65,18 +72,30 @@ function renderRows(rows) {
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-200">${escapeHtml(row.candidate_name || "")}</td>
       <td class="px-4 py-3 text-slate-200 max-w-[150px] whitespace-normal break-words">${escapeHtml(row.candidate_email || "")}</td>
-      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatScore(row.confidence_avg)}</td>
-      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[56px] whitespace-nowrap">${formatScore(row.communication_avg)}</td>
-      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatScore(row.content_avg)}</td>
+      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatScore(row.confidence_avg, row.status_label)}</td>
+      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[56px] whitespace-nowrap">${formatScore(row.communication_avg, row.status_label)}</td>
+      <td class="px-4 py-3 text-slate-200 font-medium text-center w-[72px] whitespace-nowrap">${formatScore(row.content_avg, row.status_label)}</td>
       <td class="px-4 py-3 font-semibold text-brand-400 text-center w-[72px] whitespace-normal break-words">${formatScore(row.final_score, row.status_label)}</td>
 
       <!-- Evaluator editable columns -->
-      <td class="px-2 py-2 text-center w-[72px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_confidence" type="number" min="0" max="10" step="1" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_confidence ?? ""}"/></td>
-      <td class="px-2 py-2 text-center w-[56px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_communication" type="number" min="0" max="10" step="1" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_communication ?? ""}"/></td>
-      <td class="px-2 py-2 text-center w-[72px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_content" type="number" min="0" max="10" step="1" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_content ?? ""}"/></td>
-      <td class="px-2 py-2 text-center w-[72px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_score" type="number" min="0" max="10" step="1" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_score ?? ""}"/></td>
+      <td class="px-2 py-2 text-center w-[72px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_confidence" type="number" min="0" max="10" step="0.01" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_confidence ?? ""}"/></td>
+      <td class="px-2 py-2 text-center w-[56px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_communication" type="number" min="0" max="10" step="0.01" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_communication ?? ""}"/></td>
+      <td class="px-2 py-2 text-center w-[72px]"><input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_content" type="number" min="0" max="10" step="0.01" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_content ?? ""}"/></td>
+      <td class="px-2 py-2 text-center w-[160px]">
+        <div class="space-y-2">
+          <input data-session-id="${escapeAttr(row.session_id)}" data-eval-field="eval_score" type="number" min="0" max="10" step="0.01" class="w-full bg-transparent text-slate-100 text-center outline-none" value="${row.eval_score ?? ""}"/>
+          <button
+            type="button"
+            class="save-eval-btn w-full rounded-lg border border-[#bbf451] bg-[#bbf451] px-2 py-1.5 text-[11px] font-semibold text-slate-950 hover:brightness-95"
+            data-session-id="${escapeAttr(row.session_id)}"
+          >
+            Save & Calculate
+          </button>
+        </div>
+      </td>
       <td class="px-4 py-3">
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-col gap-2">
+          <a class="rounded-lg border border-[#ffdf20] bg-[#ffdf20] px-3 py-1.5 text-center text-xs font-semibold text-slate-950 hover:brightness-95" href="${api.sessionVideos(encodeURIComponent(row.session_id))}">View Video Responses</a>
           <a class="rounded-lg border border-[#bbf451]/70 bg-gradient-to-b from-[#68b32f] to-[#4d8f21] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-105" href="${api.sessionStandard(encodeURIComponent(row.session_id))}">View Standard Response</a>
         </div>
       </td>
@@ -95,6 +114,35 @@ function renderRows(rows) {
 }
 
 async function onTableClick(event) {
+  const saveButton = event.target.closest(".save-eval-btn");
+  if (saveButton) {
+    const sessionId = saveButton.dataset.sessionId;
+    const row = saveButton.closest("tr");
+    if (!sessionId || !row) return;
+
+    const communication = _inputScoreValue(row, "eval_communication");
+    const content = _inputScoreValue(row, "eval_content");
+    const confidence = _inputScoreValue(row, "eval_confidence");
+    if (communication === null || content === null || confidence === null) {
+      setStatus("Enter Communication, Content, and Confidence evaluator scores first.", true);
+      return;
+    }
+
+    const total = calculateEvaluatorTotal(communication, content, confidence);
+    const totalInput = row.querySelector('input[data-eval-field="eval_score"]');
+    if (totalInput) totalInput.value = total.toFixed(2);
+
+    saveButton.disabled = true;
+    const shortId = sessionId.length > 8 ? sessionId.slice(0, 8) : sessionId;
+    setStatus(`Saving evaluator scores (${shortId})...`);
+    try {
+      await persistEvaluatorScores(sessionId, row);
+    } finally {
+      saveButton.disabled = false;
+    }
+    return;
+  }
+
   const button = event.target.closest(".delete-btn");
   if (!button) return;
 
@@ -160,21 +208,103 @@ function onEvaluatorInput(event) {
   const input = event.target.closest && event.target.closest('input[data-eval-field]') || (event.target && event.target.matches && event.target.matches('input[data-eval-field]') ? event.target : null);
   if (!input) return;
 
-  // allow only digits, remove other characters
-  const raw = String(input.value || "");
-  const cleaned = raw.replace(/[^0-9]/g, "");
-  if (cleaned !== raw) {
-    input.value = cleaned;
+  // allow only numeric input with optional decimal point
+  const raw = String(input.value || "").trim();
+  let cleaned = raw.replace(/[^0-9.]/g, "");
+  const firstDot = cleaned.indexOf(".");
+  if (firstDot >= 0) {
+    cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replaceAll(".", "");
+    const fractional = cleaned.slice(firstDot + 1);
+    if (fractional.length > 2) {
+      cleaned = cleaned.slice(0, firstDot + 1) + fractional.slice(0, 2);
+    }
   }
+  if (cleaned !== raw) input.value = cleaned;
 
   // clamp to allowed range
   const min = Number(input.getAttribute('min') || 0);
   const max = Number(input.getAttribute('max') || 9999);
-  let v = cleaned === "" ? null : parseInt(cleaned, 10);
+  let v = cleaned === "" ? null : Number(cleaned);
+  if (v !== null && Number.isNaN(v)) {
+    v = null;
+  }
   if (v !== null) {
-    if (v < min) v = min;
-    if (v > max) v = max;
-    input.value = String(v);
+    if (v < min) input.value = String(min);
+    if (v > max) input.value = String(max);
+  }
+}
+
+function _inputScoreValue(row, evalField) {
+  const input = row.querySelector(`input[data-eval-field="${evalField}"]`);
+  if (!input) return null;
+  const text = String(input.value || "").trim();
+  if (!text) return null;
+  const value = Number(text);
+  if (Number.isNaN(value)) return null;
+  return value;
+}
+
+function buildEvaluatorPayload(row) {
+  return {
+    communication_score: _inputScoreValue(row, "eval_communication"),
+    content_score: _inputScoreValue(row, "eval_content"),
+    confidence_score: _inputScoreValue(row, "eval_confidence"),
+    total_score: _inputScoreValue(row, "eval_score")
+  };
+}
+
+function applySavedEvaluatorValues(row, payload) {
+  const fieldMap = {
+    eval_communication: payload.evaluator_communication_score,
+    eval_content: payload.evaluator_content_score,
+    eval_confidence: payload.evaluator_confidence_score,
+    eval_score: payload.evaluator_total_score
+  };
+
+  Object.entries(fieldMap).forEach(([evalField, value]) => {
+    const input = row.querySelector(`input[data-eval-field="${evalField}"]`);
+    if (!input) return;
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+      input.value = "";
+      return;
+    }
+    if (evalField === "eval_score") {
+      input.value = Number(value).toFixed(2);
+      return;
+    }
+    input.value = String(Number(value));
+  });
+}
+
+function calculateEvaluatorTotal(communication, content, confidence) {
+  const weighted = (
+    (communication * EVALUATOR_TOTAL_WEIGHTS.communication)
+    + (content * EVALUATOR_TOTAL_WEIGHTS.content)
+    + (confidence * EVALUATOR_TOTAL_WEIGHTS.confidence)
+  );
+  return Math.max(0, Math.min(10, Math.round(weighted * 100) / 100));
+}
+
+async function persistEvaluatorScores(sessionId, row) {
+  const payload = buildEvaluatorPayload(row);
+  const shortId = sessionId.length > 8 ? sessionId.slice(0, 8) : sessionId;
+
+  try {
+    const res = await fetch(api.sessionScores(encodeURIComponent(sessionId)), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    const saved = await res.json();
+    applySavedEvaluatorValues(row, saved);
+    setStatus(`Evaluator scores saved (${shortId}).`);
+  } catch (err) {
+    setStatus(`Failed to save evaluator scores (${shortId}): ${err.message}`, true);
+    throw err;
   }
 }
 
