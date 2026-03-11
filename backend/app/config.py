@@ -1,10 +1,11 @@
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     app_name: str = "MeetnGreet Automation API"
     app_version: str = "0.1.0"
+    app_env: str = Field(default="development", alias="APP_ENV")
 
     use_local_db: bool = Field(default=True, alias="USE_LOCAL_DB")
     local_db_path: str = Field(
@@ -30,6 +31,36 @@ class Settings(BaseSettings):
     use_openai_eval: bool = Field(default=True, alias="USE_OPENAI_EVAL")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_eval_model: str = Field(default="gpt-4o-mini", alias="OPENAI_EVAL_MODEL")
+    evaluation_max_workers: int = Field(default=4, alias="EVAL_MAX_WORKERS")
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="REDIS_URL")
+    evaluation_queue_name: str = Field(default="evaluation", alias="EVAL_QUEUE_NAME")
+    evaluation_job_timeout: int = Field(default=900, alias="EVAL_JOB_TIMEOUT")
+    evaluation_job_ttl: int = Field(default=3600, alias="EVAL_JOB_TTL")
+    evaluation_failure_ttl: int = Field(default=3600, alias="EVAL_FAILURE_TTL")
+    evaluation_requeue_enabled: bool = Field(default=True, alias="EVAL_REQUEUE_ENABLED")
+    evaluation_requeue_interval_seconds: int = Field(
+        default=60,
+        alias="EVAL_REQUEUE_INTERVAL_SECONDS",
+    )
+    evaluation_requeue_batch_size: int = Field(default=25, alias="EVAL_REQUEUE_BATCH_SIZE")
+    evaluation_requeue_lock_ttl_seconds: int = Field(
+        default=55,
+        alias="EVAL_REQUEUE_LOCK_TTL_SECONDS",
+    )
+    evaluation_requeue_max_attempts: int = Field(default=5, alias="EVAL_REQUEUE_MAX_ATTEMPTS")
+    evaluation_requeue_attempt_ttl_seconds: int = Field(
+        default=86400,
+        alias="EVAL_REQUEUE_ATTEMPT_TTL_SECONDS",
+    )
+    healthcheck_openai: bool = Field(default=False, alias="HEALTHCHECK_OPENAI")
+    healthcheck_openai_timeout_seconds: int = Field(
+        default=5,
+        alias="HEALTHCHECK_OPENAI_TIMEOUT_SECONDS",
+    )
+    rq_failed_job_alert_threshold: int = Field(
+        default=10,
+        alias="RQ_FAILED_JOB_ALERT_THRESHOLD",
+    )
     openai_transcribe_model: str = Field(
         default="gpt-4o-mini-transcribe",
         alias="OPENAI_TRANSCRIBE_MODEL",
@@ -77,5 +108,27 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @model_validator(mode="after")
+    def _validate_security_settings(self):
+        allowed_samesite = {"lax", "strict", "none"}
+        samesite = str(self.session_cookie_samesite or "").strip().lower()
+        if samesite not in allowed_samesite:
+            raise ValueError("SESSION_COOKIE_SAMESITE must be one of: lax, strict, none.")
+        if samesite == "none" and not self.session_cookie_secure:
+            raise ValueError("SESSION_COOKIE_SAMESITE=none requires SESSION_COOKIE_SECURE=true.")
+        self.session_cookie_samesite = samesite
+
+        env = str(self.app_env or "").strip().lower()
+        if env in {"prod", "production"}:
+            if not self.session_secret or self.session_secret == "change-me-session-secret":
+                raise ValueError("SESSION_SECRET must be set to a strong value in production.")
+            if len(self.session_secret) < 32:
+                raise ValueError("SESSION_SECRET must be at least 32 characters long.")
+            if not self.session_cookie_secure:
+                raise ValueError("SESSION_COOKIE_SECURE must be true in production.")
+            if not (self.session_cookie_domain or "").strip():
+                raise ValueError("SESSION_COOKIE_DOMAIN must be set in production.")
+            self.session_cookie_domain = self.session_cookie_domain.strip()
+        return self
 
 settings = Settings()

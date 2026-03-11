@@ -78,23 +78,78 @@ In Auth0 dashboard, allow:
 pip install -r backend/requirements.txt
 ```
 
-2. Ensure `.env` is present and points to port 8000:
+2. Apply database migrations:
+
+```bash
+alembic upgrade head
+```
+
+3. Ensure `.env` is present and points to port 8000:
 
 ```text
 AUTH0_CALLBACK_URL=http://127.0.0.1:8000/callback
 AUTH0_LOGOUT_URL=http://127.0.0.1:8000/
 ```
 
-3. Start server:
+4. Start server:
 
 ```bash
 python app.py
 ```
 
-4. Open:
+5. Open:
 
 ```text
 http://127.0.0.1:8000/
+```
+
+## Background evaluation worker
+
+Evaluation is queued in Redis and processed by a separate worker. Start Redis, then run:
+
+```bash
+python -m backend.app.workers.run_evaluation_worker
+```
+
+Optional `.env` overrides (defaults shown):
+
+```text
+REDIS_URL=redis://127.0.0.1:6379/0
+EVAL_QUEUE_NAME=evaluation
+EVAL_MAX_WORKERS=4
+EVAL_JOB_TIMEOUT=900
+EVAL_JOB_TTL=3600
+EVAL_FAILURE_TTL=3600
+EVAL_REQUEUE_ENABLED=true
+EVAL_REQUEUE_INTERVAL_SECONDS=60
+EVAL_REQUEUE_BATCH_SIZE=25
+EVAL_REQUEUE_LOCK_TTL_SECONDS=55
+EVAL_REQUEUE_MAX_ATTEMPTS=5
+EVAL_REQUEUE_ATTEMPT_TTL_SECONDS=86400
+```
+
+## Production session hardening
+
+When `APP_ENV=production`, these are enforced:
+
+```text
+APP_ENV=production
+SESSION_SECRET=use-a-long-random-secret
+SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_SAMESITE=lax
+SESSION_COOKIE_DOMAIN=yourdomain.com
+```
+
+## Worker supervision (systemd)
+
+Sample unit files are in `deploy/systemd/`. Update the paths and user, then install:
+
+```bash
+sudo cp deploy/systemd/meetngreet-api.service /etc/systemd/system/
+sudo cp deploy/systemd/meetngreet-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now meetngreet-api
+sudo systemctl enable --now meetngreet-worker
 ```
 
 Optional env vars for launcher:
@@ -106,3 +161,13 @@ APP_RELOAD=true
 ```
 
 The launcher already watches only `backend/app` to avoid reloads caused by media writes.
+
+## Health checks
+
+Optional `.env` overrides:
+
+```text
+HEALTHCHECK_OPENAI=false
+HEALTHCHECK_OPENAI_TIMEOUT_SECONDS=5
+RQ_FAILED_JOB_ALERT_THRESHOLD=10
+```

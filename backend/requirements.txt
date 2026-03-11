@@ -11,3 +11,7 @@ pymysql==1.1.1
 requests==2.32.3
 python-jose[cryptography]==3.3.0
 email-validator==2.2.0
+tenacity==8.2.3
+redis==5.0.4
+rq==1.16.2
+alembic==1.13.2

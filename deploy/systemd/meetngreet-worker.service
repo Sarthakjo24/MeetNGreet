@@ -1,0 +1,18 @@
+[Unit]
+Description=MeetnGreet Evaluation Worker
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=meetngreet
+WorkingDirectory=/opt/meetngreet
+EnvironmentFile=/opt/meetngreet/.env
+ExecStart=/opt/meetngreet/venv/bin/python -m backend.app.workers.run_evaluation_worker
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

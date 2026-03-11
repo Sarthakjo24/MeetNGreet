@@ -1,19 +1,27 @@
+import logging
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from redis import Redis
 from sqlalchemy import inspect, select, text
 
 from .config import settings
-from .database import Base, SessionLocal, engine
+from .database import SessionLocal, engine
+from .logging_config import configure_logging
+from .logging_context import bind_log_context
 from .models import CandidateResponse, CandidateSession, Score, SessionQuestion, User
 from .routers.auth import router as auth_router
 from .routers.interview import router as interview_router
+from .services.queue_monitor import get_failed_job_count
 
-
+configure_logging()
 app = FastAPI(title=settings.app_name, version=settings.app_version)
+
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +32,15 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(interview_router)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    with bind_log_context(request_id=request_id):
+        response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -786,47 +803,6 @@ def _drop_legacy_score_columns() -> None:
 def on_startup() -> None:
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
     Path("./backend/storage").mkdir(parents=True, exist_ok=True)
-    _ensure_users_name_column()
-    Base.metadata.create_all(bind=engine)
-    _ensure_scores_table()
-    _ensure_users_name_column()
-    _backfill_user_names()
-    _ensure_candidate_sessions_columns()
-    _ensure_session_questions_columns()
-    _remove_candidate_response_detailed_feedback_column()
-    _backfill_scores_from_legacy_columns()
-    _migrate_candidate_responses_schema()
-    _drop_legacy_score_columns()
-    _backfill_session_and_question_identity()
-    _backfill_candidate_response_identity_fields()
-
-    if engine.dialect.name == "mysql":
-        try:
-            with engine.begin() as conn:
-                conn.execute(
-                    text("ALTER TABLE candidate_responses MODIFY COLUMN media_blob LONGBLOB NULL")
-                )
-                mysql_tuning_statements = [
-                    "CREATE INDEX idx_candidate_sessions_created_at ON candidate_sessions (created_at)",
-                    (
-                        "CREATE INDEX idx_candidate_responses_session_created "
-                        "ON candidate_responses (session_id, created_at)"
-                    ),
-                    (
-                        "CREATE INDEX idx_candidate_responses_session_question "
-                        "ON candidate_responses (session_id, question_id)"
-                    ),
-                ]
-
-                for statement in mysql_tuning_statements:
-                    try:
-                        conn.execute(text(statement))
-                    except Exception:
-                        # Index may already exist depending on prior runs/migrations.
-                        continue
-        except Exception:
-            # Keep startup resilient if table/column is already in expected state.
-            pass
 
 
 @app.get("/")
@@ -879,6 +855,76 @@ def serve_admin_session_response(session_id: str) -> FileResponse:
     return FileResponse(static_dir / "admin_response.html", headers=NO_CACHE_HEADERS)
 
 
+def _check_db() -> tuple[bool, str | None]:
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("SELECT 1"))
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _check_redis() -> tuple[bool, str | None]:
+    try:
+        redis_conn = Redis.from_url(settings.redis_url)
+        redis_conn.ping()
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _check_openai() -> tuple[str, str | None]:
+    if not settings.use_openai_eval or not settings.openai_api_key:
+        return "skipped", None
+    if not settings.healthcheck_openai:
+        return "skipped", None
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=settings.openai_api_key)
+        client.models.list(timeout=settings.healthcheck_openai_timeout_seconds)
+        return "ok", None
+    except Exception as exc:
+        return "error", str(exc)
+
+
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> JSONResponse:
+    db_ok, db_error = _check_db()
+    redis_ok, redis_error = _check_redis()
+    openai_status, openai_error = _check_openai()
+
+    failed_jobs = None
+    failed_job_alert = False
+    if redis_ok:
+        try:
+            failed_jobs = get_failed_job_count()
+            failed_job_alert = (
+                failed_jobs is not None
+                and failed_jobs >= settings.rq_failed_job_alert_threshold
+            )
+            if failed_job_alert:
+                logger.warning(
+                    "RQ failed job count exceeded threshold.",
+                    extra={
+                        "failed_jobs": failed_jobs,
+                        "threshold": settings.rq_failed_job_alert_threshold,
+                    },
+                )
+        except Exception:
+            failed_jobs = None
+
+    checks = {
+        "db": {"ok": db_ok, "error": db_error},
+        "redis": {"ok": redis_ok, "error": redis_error},
+        "openai": {"status": openai_status, "error": openai_error},
+        "rq_failed_jobs": failed_jobs,
+        "rq_failed_jobs_alert": failed_job_alert,
+    }
+    ok = db_ok and redis_ok and openai_status != "error"
+    status_code = 200 if ok else 503
+    status = "ok" if ok else "degraded"
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": status, "checks": checks},
+    )

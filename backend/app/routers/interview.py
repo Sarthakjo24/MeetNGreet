@@ -1,7 +1,5 @@
 import logging
 import re
-import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -11,7 +9,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..database import SessionLocal, get_db
+from ..database import get_db
 from ..models import CandidateResponse, CandidateSession, Score, SessionQuestion, User
 from ..schemas import (
     AdminDeleteOut,
@@ -26,6 +24,7 @@ from ..schemas import (
     UploadResponseOut,
 )
 from ..security import CurrentUser, get_current_user
+from ..services.evaluation_queue import enqueue_session_evaluation
 from ..services.evaluation_service import EvaluationService
 from ..services.mysql_sync_service import get_mysql_sync_service
 from ..services.question_service import QuestionService
@@ -39,8 +38,6 @@ question_service = QuestionService()
 storage_service = MediaStorageService()
 mysql_sync_service = get_mysql_sync_service()
 _evaluation_service: EvaluationService | None = None
-_evaluation_lock = threading.Lock()
-_evaluation_inflight: set[str] = set()
 EVALUATOR_WEIGHTS = {
     "communication": 0.45,
     "content": 0.45,
@@ -55,54 +52,11 @@ def _get_evaluation_service() -> EvaluationService:
     return _evaluation_service
 
 
-def _evaluate_session_background(session_id: str) -> None:
-    retry_delays = [0.0, 2.0, 5.0]
-    for idx, delay_seconds in enumerate(retry_delays):
-        if delay_seconds > 0:
-            time.sleep(delay_seconds)
-
-        db = SessionLocal()
-        try:
-            _get_evaluation_service().evaluate_session(db=db, session_id=session_id)
-            return
-        except Exception:
-            logger.exception(
-                "Background evaluation attempt %s failed for session %s",
-                idx + 1,
-                session_id,
-            )
-            try:
-                session = db.scalar(select(CandidateSession).where(CandidateSession.id == session_id))
-                if session and session.status != "completed":
-                    session.status = "submitted"
-                    db.commit()
-            except Exception:
-                logger.exception(
-                    "Failed to update status for session %s after evaluation failure",
-                    session_id,
-                )
-        finally:
-            db.close()
-
-
 def _enqueue_session_evaluation(session_id: str) -> None:
-    with _evaluation_lock:
-        if session_id in _evaluation_inflight:
-            return
-        _evaluation_inflight.add(session_id)
-
-    def _runner() -> None:
-        try:
-            _evaluate_session_background(session_id=session_id)
-        finally:
-            with _evaluation_lock:
-                _evaluation_inflight.discard(session_id)
-
-    threading.Thread(
-        target=_runner,
-        name=f"session-eval-{session_id[:8]}",
-        daemon=True,
-    ).start()
+    try:
+        enqueue_session_evaluation(session_id)
+    except Exception:
+        logger.exception("Failed to enqueue evaluation job for session %s", session_id)
 
 
 def _ensure_session_access(session: CandidateSession, current_user: CurrentUser) -> None:

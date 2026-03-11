@@ -1,12 +1,12 @@
 import logging
 from urllib.parse import quote_plus
 
-from sqlalchemy import delete, inspect, or_, select, text
+from sqlalchemy import delete, inspect, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import settings
-from ..database import Base, engine as primary_engine
+from ..database import engine as primary_engine
 from ..models import CandidateResponse, CandidateSession, Score, SessionQuestion, User
 
 logger = logging.getLogger(__name__)
@@ -71,125 +71,22 @@ class MysqlSyncService:
     def _ensure_target_schema(self) -> None:
         if not self.enabled or not self._engine:
             return
-
-        pre_inspector = inspect(self._engine)
-        pre_tables = set(pre_inspector.get_table_names())
-        if "users" in pre_tables:
-            pre_users_cols = {column["name"] for column in pre_inspector.get_columns("users")}
-            with self._engine.begin() as conn:
-                if "name" not in pre_users_cols:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR(255) NULL"))
-                if "candidate_id" not in pre_users_cols:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN candidate_id VARCHAR(320) NULL"))
-                try:
-                    conn.execute(text("CREATE UNIQUE INDEX uq_users_candidate_id ON users (candidate_id)"))
-                except Exception:
-                    try:
-                        conn.execute(text("CREATE INDEX ix_users_candidate_id ON users (candidate_id)"))
-                    except Exception:
-                        pass
-
-        Base.metadata.create_all(bind=self._engine)
-        Score.__table__.create(bind=self._engine, checkfirst=True)
         inspector = inspect(self._engine)
-
         table_names = set(inspector.get_table_names())
-        users_cols = {column["name"] for column in inspector.get_columns("users")}
-        session_cols = {column["name"] for column in inspector.get_columns("candidate_sessions")}
-        question_cols = {column["name"] for column in inspector.get_columns("session_questions")}
-        response_cols = {column["name"] for column in inspector.get_columns("candidate_responses")}
-        score_cols = (
-            {column["name"] for column in inspector.get_columns("scores")}
-            if "scores" in table_names
-            else set()
-        )
-
-        with self._engine.begin() as conn:
-            if "name" not in users_cols:
-                conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR(255) NULL"))
-            if "candidate_id" not in users_cols:
-                conn.execute(text("ALTER TABLE users ADD COLUMN candidate_id VARCHAR(320) NULL"))
-            try:
-                conn.execute(text("CREATE UNIQUE INDEX uq_users_candidate_id ON users (candidate_id)"))
-            except Exception:
-                try:
-                    conn.execute(text("CREATE INDEX ix_users_candidate_id ON users (candidate_id)"))
-                except Exception:
-                    pass
-
-            if "candidate_name" not in session_cols:
-                conn.execute(text("ALTER TABLE candidate_sessions ADD COLUMN candidate_name VARCHAR(255) NULL"))
-            if "candidate_email" not in session_cols:
-                conn.execute(text("ALTER TABLE candidate_sessions ADD COLUMN candidate_email VARCHAR(320) NULL"))
-            for legacy_col in (
-                "overall_score",
-                "communication_total",
-                "content_total",
-                "confidence_total",
-            ):
-                if legacy_col in session_cols:
-                    try:
-                        conn.execute(
-                            text(f"ALTER TABLE candidate_sessions DROP COLUMN {legacy_col}")
-                        )
-                    except Exception:
-                        pass
-
-            if "candidate_name" not in question_cols:
-                conn.execute(text("ALTER TABLE session_questions ADD COLUMN candidate_name VARCHAR(255) NULL"))
-            if "candidate_email" not in question_cols:
-                conn.execute(text("ALTER TABLE session_questions ADD COLUMN candidate_email VARCHAR(320) NULL"))
-
-            if "candidate_name" not in response_cols:
-                conn.execute(text("ALTER TABLE candidate_responses ADD COLUMN candidate_name VARCHAR(255) NULL"))
-            if "candidate_email" not in response_cols:
-                conn.execute(text("ALTER TABLE candidate_responses ADD COLUMN candidate_email VARCHAR(320) NULL"))
-            if "attempt_no" in response_cols:
-                conn.execute(
-                    text(
-                        "ALTER TABLE candidate_responses "
-                        "MODIFY COLUMN attempt_no INT NOT NULL DEFAULT 1"
-                    )
-                )
-            for legacy_col in (
-                "communication_score",
-                "content_score",
-                "confidence_score",
-                "final_score",
-            ):
-                if legacy_col in response_cols:
-                    try:
-                        conn.execute(
-                            text(f"ALTER TABLE candidate_responses DROP COLUMN {legacy_col}")
-                        )
-                    except Exception:
-                        pass
-
-            if "scores" in table_names:
-                if "candidate_name" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN candidate_name VARCHAR(255) NULL"))
-                if "candidate_email" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN candidate_email VARCHAR(320) NULL"))
-                if "ai_communication_score" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_communication_score FLOAT NULL"))
-                if "ai_content_score" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_content_score FLOAT NULL"))
-                if "ai_confidence_score" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_confidence_score FLOAT NULL"))
-                if "ai_total_score" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN ai_total_score FLOAT NULL"))
-                if "evaluator_communication_score" not in score_cols:
-                    conn.execute(
-                        text("ALTER TABLE scores ADD COLUMN evaluator_communication_score FLOAT NULL")
-                    )
-                if "evaluator_content_score" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN evaluator_content_score FLOAT NULL"))
-                if "evaluator_confidence_score" not in score_cols:
-                    conn.execute(
-                        text("ALTER TABLE scores ADD COLUMN evaluator_confidence_score FLOAT NULL")
-                    )
-                if "evaluator_total_score" not in score_cols:
-                    conn.execute(text("ALTER TABLE scores ADD COLUMN evaluator_total_score FLOAT NULL"))
+        required_tables = {
+            "users",
+            "candidate_sessions",
+            "session_questions",
+            "candidate_responses",
+            "scores",
+        }
+        missing = required_tables - table_names
+        if missing:
+            logger.error(
+                "MySQL sync disabled: missing tables %s. Run migrations before enabling sync.",
+                sorted(missing),
+            )
+            self.enabled = False
 
     def sync_session(self, source_db: Session, session_id: str) -> None:
         if not self.enabled or not self._session_factory:
@@ -197,6 +94,8 @@ class MysqlSyncService:
 
         try:
             self._ensure_target_schema()
+            if not self.enabled:
+                return
 
             session_row = source_db.scalar(
                 select(CandidateSession).where(CandidateSession.id == session_id)

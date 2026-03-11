@@ -1,8 +1,36 @@
 import json
-import time
 from typing import Any
 
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
+
 from ..config import settings
+
+try:
+    from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
+
+    _OPENAI_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
+        APIConnectionError,
+        APITimeoutError,
+        RateLimitError,
+        APIError,
+    )
+except Exception:
+    _OPENAI_RETRY_EXCEPTIONS = ()
+
+_RETRY_EXCEPTIONS = _OPENAI_RETRY_EXCEPTIONS + (
+    TimeoutError,
+    ConnectionError,
+    OSError,
+)
+
+
+def _retry_policy():
+    return retry(
+        retry=retry_if_exception_type(_RETRY_EXCEPTIONS),
+        wait=wait_random_exponential(min=1, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
 
 
 class LLMScoringService:
@@ -60,37 +88,31 @@ class LLMScoringService:
         }
 
         try:
-            retry_delays = [0.0, 1.0, 2.5]
-            for idx, delay_seconds in enumerate(retry_delays):
-                if delay_seconds > 0:
-                    time.sleep(delay_seconds)
+            raw = self._fetch_scores(prompt, user_content)
+            if not raw:
+                return None
 
-                try:
-                    response = self.client.chat.completions.create(
-                        model=settings.openai_eval_model,
-                        temperature=0.0,
-                        response_format={"type": "json_object"},
-                        messages=[
-                            {"role": "system", "content": prompt},
-                            {"role": "user", "content": json.dumps(user_content)},
-                        ],
-                        timeout=60,
-                    )
-                    raw = response.choices[0].message.content
-                    if not raw:
-                        continue
-
-                    data = json.loads(raw)
-                    sanitized = self._sanitize(data)
-                    if sanitized:
-                        return sanitized
-                except Exception:
-                    if idx >= len(retry_delays) - 1:
-                        raise
-
+            data = json.loads(raw)
+            sanitized = self._sanitize(data)
+            if sanitized:
+                return sanitized
             return None
         except Exception:
             return None
+
+    @_retry_policy()
+    def _fetch_scores(self, prompt: str, user_content: dict[str, Any]) -> str | None:
+        response = self.client.chat.completions.create(
+            model=settings.openai_eval_model,
+            temperature=0.0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps(user_content)},
+            ],
+            timeout=60,
+        )
+        return response.choices[0].message.content
 
     def _sanitize(self, data: dict[str, Any]) -> dict[str, Any] | None:
         communication = self._to_score_10(data.get("communication_score"))
