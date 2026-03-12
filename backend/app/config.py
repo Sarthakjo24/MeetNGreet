@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     use_openai_eval: bool = Field(default=True, alias="USE_OPENAI_EVAL")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_eval_model: str = Field(default="gpt-4o-mini", alias="OPENAI_EVAL_MODEL")
+    openai_eval_max_concurrent: int = Field(default=2, alias="OPENAI_EVAL_MAX_CONCURRENT")
     evaluation_max_workers: int = Field(default=4, alias="EVAL_MAX_WORKERS")
     redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="REDIS_URL")
     evaluation_queue_name: str = Field(default="evaluation", alias="EVAL_QUEUE_NAME")

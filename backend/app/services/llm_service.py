@@ -1,4 +1,5 @@
 import json
+import threading
 from typing import Any
 
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
@@ -21,6 +22,10 @@ _RETRY_EXCEPTIONS = _OPENAI_RETRY_EXCEPTIONS + (
     TimeoutError,
     ConnectionError,
     OSError,
+)
+
+_OPENAI_SEMAPHORE = threading.BoundedSemaphore(
+    max(1, int(settings.openai_eval_max_concurrent))
 )
 
 
@@ -102,16 +107,17 @@ class LLMScoringService:
 
     @_retry_policy()
     def _fetch_scores(self, prompt: str, user_content: dict[str, Any]) -> str | None:
-        response = self.client.chat.completions.create(
-            model=settings.openai_eval_model,
-            temperature=0.0,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": json.dumps(user_content)},
-            ],
-            timeout=60,
-        )
+        with _OPENAI_SEMAPHORE:
+            response = self.client.chat.completions.create(
+                model=settings.openai_eval_model,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": json.dumps(user_content)},
+                ],
+                timeout=60,
+            )
         return response.choices[0].message.content
 
     def _sanitize(self, data: dict[str, Any]) -> dict[str, Any] | None:

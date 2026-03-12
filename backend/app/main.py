@@ -17,9 +17,11 @@ from .models import CandidateResponse, CandidateSession, Score, SessionQuestion,
 from .routers.auth import router as auth_router
 from .routers.interview import router as interview_router
 from .services.queue_monitor import get_failed_job_count
+from .telemetry import configure_telemetry
 
 configure_logging()
 app = FastAPI(title=settings.app_name, version=settings.app_version)
+configure_telemetry(app)
 
 logger = logging.getLogger(__name__)
 

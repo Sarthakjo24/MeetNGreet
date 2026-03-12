@@ -2,6 +2,7 @@ from redis import Redis
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq.job import Job
+from opentelemetry.propagate import inject
 
 from ..config import settings
 
@@ -30,6 +31,12 @@ def enqueue_session_evaluation(session_id: str) -> bool:
     except NoSuchJobError:
         pass
 
+    trace_context: dict[str, str] = {}
+    try:
+        inject(trace_context)
+    except Exception:
+        trace_context = {}
+
     queue.enqueue(
         "backend.app.workers.evaluation_worker.evaluate_session_job",
         session_id,
@@ -38,5 +45,6 @@ def enqueue_session_evaluation(session_id: str) -> bool:
         result_ttl=0,
         ttl=settings.evaluation_job_ttl,
         failure_ttl=settings.evaluation_failure_ttl,
+        meta={"trace_context": trace_context} if trace_context else None,
     )
     return True

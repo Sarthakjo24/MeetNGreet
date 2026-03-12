@@ -1,6 +1,9 @@
 import logging
 
 from sqlalchemy import select
+from opentelemetry import trace
+from opentelemetry.propagate import extract
+from rq import get_current_job
 
 from ..database import SessionLocal
 from ..logging_context import bind_log_context
@@ -18,14 +21,24 @@ def evaluate_session_job(session_id: str) -> None:
         _shared_transcription_service = TranscriptionService()
 
     db = SessionLocal()
+    job = get_current_job()
+    trace_context = {}
+    if job and job.meta:
+        trace_context = job.meta.get("trace_context") or {}
+    parent_ctx = extract(trace_context)
+    tracer = trace.get_tracer(__name__)
     try:
         job_id = f"eval:{session_id}"
-        with bind_log_context(job_id=job_id, session_id=session_id):
-            logger.info("Evaluation job started.")
-            evaluation_service = EvaluationService()
-            evaluation_service.transcription_service = _shared_transcription_service
-            evaluation_service.evaluate_session(db=db, session_id=session_id)
-            logger.info("Evaluation job completed.")
+        with tracer.start_as_current_span("evaluation_job", context=parent_ctx) as span:
+            span.set_attribute("session_id", session_id)
+            if job:
+                span.set_attribute("rq.job_id", job.id)
+            with bind_log_context(job_id=job_id, session_id=session_id):
+                logger.info("Evaluation job started.")
+                evaluation_service = EvaluationService()
+                evaluation_service.transcription_service = _shared_transcription_service
+                evaluation_service.evaluate_session(db=db, session_id=session_id)
+                logger.info("Evaluation job completed.")
     except Exception:
         with bind_log_context(job_id=f"eval:{session_id}", session_id=session_id):
             logger.exception("Evaluation job failed.")

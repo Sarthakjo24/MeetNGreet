@@ -126,6 +126,7 @@ EVAL_REQUEUE_BATCH_SIZE=25
 EVAL_REQUEUE_LOCK_TTL_SECONDS=55
 EVAL_REQUEUE_MAX_ATTEMPTS=5
 EVAL_REQUEUE_ATTEMPT_TTL_SECONDS=86400
+OPENAI_EVAL_MAX_CONCURRENT=2
 ```
 
 ## Production session hardening
@@ -152,6 +153,8 @@ sudo systemctl enable --now meetngreet-api
 sudo systemctl enable --now meetngreet-worker
 ```
 
+The worker unit includes a `CPUQuota` limit; adjust it to fit your server capacity.
+
 Optional env vars for launcher:
 
 ```text
@@ -170,4 +173,37 @@ Optional `.env` overrides:
 HEALTHCHECK_OPENAI=false
 HEALTHCHECK_OPENAI_TIMEOUT_SECONDS=5
 RQ_FAILED_JOB_ALERT_THRESHOLD=10
+```
+
+## Tracing (OpenTelemetry)
+
+Set these to enable tracing:
+
+```text
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20token
+```
+
+## Load testing
+
+K6 (requires a valid session cookie):
+
+```bash
+k6 run loadtest/k6/interview.js
+```
+
+Locust:
+
+```bash
+pip install -r loadtest/requirements.txt
+locust -f loadtest/locust/locustfile.py -u 50 -r 10 -t 5m
+```
+
+Both scripts read:
+
+```text
+BASE_URL=http://127.0.0.1:8000
+SESSION_COOKIE_NAME=meetngreet_session
+SESSION_COOKIE=your_session_cookie_value
 ```
