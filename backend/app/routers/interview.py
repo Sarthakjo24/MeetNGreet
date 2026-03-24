@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -112,6 +113,30 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def _parse_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        return [text] if text else []
+
+    if isinstance(data, list):
+        cleaned: list[str] = []
+        for item in data:
+            text = str(item).strip()
+            if text:
+                cleaned.append(text)
+        return cleaned
+
+    if isinstance(data, str):
+        text = data.strip()
+        return [text] if text else []
+
+    return []
 
 
 def _session_upload_counts(db: Session, session_id: str) -> tuple[int, int]:
@@ -644,6 +669,15 @@ def get_admin_session_detail(
     for response in responses:
         response_by_question[response.question_id] = response
 
+    if session.status in ("submitted", "completed") and responses:
+        has_missing_question_scores = any(
+            question.question_total_score is None
+            for question in questions
+            if question.question_id in response_by_question
+        )
+        if has_missing_question_scores:
+            _enqueue_session_evaluation(session_id)
+
     submitted_at = session.evaluated_at
     if not submitted_at and responses:
         submitted_at = max(r.created_at for r in responses)
@@ -662,13 +696,13 @@ def get_admin_session_detail(
                 "question_text": question.question_text,
                 "order_index": question.order_index,
                 "transcript": response.transcript or "",
-                "communication_score": None,
-                "content_score": None,
-                "confidence_score": None,
-                "final_score": None,
-                "feedback": None,
-                "strengths": [],
-                "weaknesses": [],
+                "communication_score": question.question_communication_score,
+                "content_score": question.question_content_score,
+                "confidence_score": question.question_confidence_score,
+                "final_score": question.question_total_score,
+                "feedback": question.candidate_feedback,
+                "strengths": _parse_json_list(question.candidate_strengths),
+                "weaknesses": _parse_json_list(question.candidate_weakness),
                 "media_url": f"/api/admin/sessions/{session_id}/responses/{response.id}/media",
                 "uploaded_at": _as_utc(response.created_at),
             }

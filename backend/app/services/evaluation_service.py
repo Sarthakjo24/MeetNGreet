@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -81,6 +82,20 @@ class EvaluationService:
                 transcript=transcript,
                 video_metrics=video_metrics,
                 llm_override=llm_scores,
+            )
+
+            question.question_communication_score = score["communication_score"]
+            question.question_content_score = score["content_score"]
+            question.question_confidence_score = score["confidence_score"]
+            question.question_total_score = score["final_score"]
+            question.candidate_feedback = score["feedback"]
+            question.candidate_strengths = json.dumps(
+                score.get("strengths", []),
+                ensure_ascii=True,
+            )
+            question.candidate_weakness = json.dumps(
+                score.get("weaknesses", []),
+                ensure_ascii=True,
             )
 
             communication_total += score["communication_score"]

@@ -203,6 +203,13 @@ class MysqlSyncService:
                             topic=question.topic,
                             question_type=question.question_type,
                             order_index=question.order_index,
+                            question_communication_score=question.question_communication_score,
+                            question_content_score=question.question_content_score,
+                            question_confidence_score=question.question_confidence_score,
+                            question_total_score=question.question_total_score,
+                            candidate_strengths=question.candidate_strengths,
+                            candidate_weakness=question.candidate_weakness,
+                            candidate_feedback=question.candidate_feedback,
                         )
                         target_db.add(target_question)
                     else:
@@ -212,6 +219,21 @@ class MysqlSyncService:
                         target_question.topic = question.topic
                         target_question.question_type = question.question_type
                         target_question.order_index = question.order_index
+                        target_question.question_communication_score = (
+                            question.question_communication_score
+                        )
+                        target_question.question_content_score = (
+                            question.question_content_score
+                        )
+                        target_question.question_confidence_score = (
+                            question.question_confidence_score
+                        )
+                        target_question.question_total_score = (
+                            question.question_total_score
+                        )
+                        target_question.candidate_strengths = question.candidate_strengths
+                        target_question.candidate_weakness = question.candidate_weakness
+                        target_question.candidate_feedback = question.candidate_feedback
 
                 for question in existing_questions:
                     if question.question_id not in source_question_ids:

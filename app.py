@@ -24,7 +24,6 @@ def main() -> None:
         port=port,
         reload=reload_enabled,
         reload_dirs=[str(app_dir)],
-        log_config=None,
     )
 
 

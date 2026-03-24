@@ -46,7 +46,15 @@ async function loadSessionDetail(id) {
     const data = await res.json();
     renderSession(data);
 
-    if (data.final_score === null || data.final_score === undefined) {
+    const hasPendingQuestions = data.responses.some(
+      (item) =>
+        item.final_score === null ||
+        item.communication_score === null ||
+        item.content_score === null ||
+        item.confidence_score === null
+    );
+
+    if (data.final_score === null || data.final_score === undefined || hasPendingQuestions) {
       setStatus("Evaluation pending. Scores and feedback will appear automatically.");
       schedulePendingPoll(id);
     } else {

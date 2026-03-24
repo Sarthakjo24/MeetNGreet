@@ -111,6 +111,9 @@ Evaluation is queued in Redis and processed by a separate worker. Start Redis, t
 python -m backend.app.workers.run_evaluation_worker
 ```
 
+On Windows, the worker auto-selects `SimpleWorker` (non-forking). On Linux (e.g., production hosts),
+it uses the default forking `Worker`.
+
 Optional `.env` overrides (defaults shown):
 
 ```text

@@ -71,6 +71,41 @@ class SessionQuestion(Base):
     topic: Mapped[str] = mapped_column(String(80))
     question_type: Mapped[str] = mapped_column(String(24), default="fixed")
     order_index: Mapped[int] = mapped_column(Integer)
+    question_communication_score: Mapped[float | None] = mapped_column(
+        "Question_Communication_score",
+        Float,
+        nullable=True,
+    )
+    question_content_score: Mapped[float | None] = mapped_column(
+        "Question_content_score",
+        Float,
+        nullable=True,
+    )
+    question_confidence_score: Mapped[float | None] = mapped_column(
+        "Question_confidence_score",
+        Float,
+        nullable=True,
+    )
+    question_total_score: Mapped[float | None] = mapped_column(
+        "Question_total_score",
+        Float,
+        nullable=True,
+    )
+    candidate_strengths: Mapped[str | None] = mapped_column(
+        "Candidate_strengths",
+        Text,
+        nullable=True,
+    )
+    candidate_weakness: Mapped[str | None] = mapped_column(
+        "Candidate_weakness",
+        Text,
+        nullable=True,
+    )
+    candidate_feedback: Mapped[str | None] = mapped_column(
+        "Candidate_feedback",
+        Text,
+        nullable=True,
+    )
 
     session: Mapped[CandidateSession] = relationship("CandidateSession", back_populates="questions")
 

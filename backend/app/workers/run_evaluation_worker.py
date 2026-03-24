@@ -2,7 +2,8 @@ import multiprocessing as mp
 import os
 
 from redis import Redis
-from rq import Connection, Worker
+from rq import Connection, SimpleWorker, Worker
+from rq.timeouts import TimerDeathPenalty
 
 from ..config import settings
 from ..logging_config import configure_logging
@@ -10,12 +11,23 @@ from ..telemetry import configure_telemetry
 from ..services.evaluation_requeue import run_requeue_loop
 
 
+class _WindowsWorker(SimpleWorker):
+    death_penalty_class = TimerDeathPenalty
+
+
+def _select_worker_class():
+    if os.name == "nt":
+        return _WindowsWorker
+    return Worker
+
+
 def _run_worker() -> None:
     configure_logging()
     configure_telemetry()
     redis_conn = Redis.from_url(settings.redis_url)
     with Connection(redis_conn):
-        worker = Worker([settings.evaluation_queue_name])
+        worker_cls = _select_worker_class()
+        worker = worker_cls([settings.evaluation_queue_name])
         worker.work(logging_level="INFO")
 
 
